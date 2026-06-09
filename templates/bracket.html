@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% block title %}Knockout Bracket – WC 2026 Pool{% endblock %}
+
+{# Full-width layout so the bracket can scroll horizontally #}
+{% block main_class %}max-w-full{% endblock %}
+
+{% block content %}
+
+{# ══════════════════════════════════════════════════════════════════════════
+   BRACKET LAYOUT CONSTANTS
+   ──────────────────────────────────────────────────────────────────────────
+   total_h   : total pixel height of every round column (all columns equal).
+               8 R32 slots × slot_h = 800px keeps alignment exact.
+   slot_h    : height of one R32 match slot.  space-around distributes 8
+               items so their centres land at H/16, 3H/16 … 15H/16.
+               An R16 column (4 items) lands centres at H/8, 3H/8 … which
+               are exactly the midpoints of each R32 pair.  Same logic
+               cascades through QF, SF.  The SVG connectors use the same
+               arithmetic, so lines connect through any filled/unfilled slot.
+   card_w    : pixel width of each match card.
+   conn_w    : pixel width of each SVG connector column.
+══════════════════════════════════════════════════════════════════════════ #}
+
+<style>
+  /* ── Match card ─────────────────────────────────────────────── */
+  .bk-card {
+    width: 180px;
+    border-radius: 8px;
+    border: 1px solid #374151;
+    background: #111827;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .bk-card.is-live     { border-color: #dc2626; background: rgba(127,29,29,.25); }
+  .bk-card.is-finished { border-color: #4b5563; }
+  .bk-card.is-tbd      { border-color: #1f2937; background: #0d1117; }
+
+  /* ── Team row ───────────────────────────────────────────────── */
+  .bk-team { display:flex; align-items:center; gap:6px; padding:5px 8px 3px; }
+  .bk-team.win-bg { background: rgba(161,98,7,.18); }
+
+  .bk-flag { font-size:14px; flex-shrink:0; }
+
+  .bk-info { flex:1; min-width:0; }
+  .bk-name {
+    font-size:11px; font-weight:600; color:#e5e7eb;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .bk-name.elim   { text-decoration:line-through; color:#6b7280; }
+  .bk-name.winner { color:#fcd34d; }
+  .bk-name.tbd    { color:#374151; font-style:italic; }
+
+  .bk-owner {
+    font-size:9px; color:#4b5563; line-height:1.3;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  .bk-score {
+    font-size:15px; font-weight:800; color:#6b7280;
+    width:16px; text-align:right; flex-shrink:0; line-height:1;
+  }
+  .bk-score.winner { color:#fcd34d; }
+
+  .bk-div { height:1px; background:#1f2937; }
+
+  .bk-live-badge {
+    font-size:9px; text-align:center; color:#ef4444; padding:2px 0;
+    background:rgba(220,38,38,.12); letter-spacing:.05em;
+  }
+
+  /* ── Round header label ─────────────────────────────────────── */
+  .rnd-hdr {
+    font-size:9px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.07em; color:#d97706; text-align:center;
+    padding-bottom:6px; white-space:nowrap;
+  }
+  .rnd-hdr.conn-hdr { color:transparent; } /* spacer for connector columns */
+</style>
+
+{# ──────────────────────────────────────────────────────────────────────────
+   TEMPLATE CONSTANTS  (change here to rescale the whole bracket)
+────────────────────────────────────────────────────────────────────────── #}
+{% set TOTAL_H = 800 %}   {# = 8 × SLOT_H #}
+{% set SLOT_H  = 100 %}   {# height per R32 slot in px #}
+{% set CARD_W  = 180 %}   {# match-card width in px #}
+{% set CONN_W  = 26  %}   {# SVG connector column width in px #}
+
+
+{# ══════════════════════════════════════════════════════════════════════════
+   MACROS
+══════════════════════════════════════════════════════════════════════════ #}
+
+{# ── Single compact match card ────────────────────────────────────────── #}
+{% macro card(m) %}
+{% if m %}
+  {% set fin = (m.status == 'FINISHED') %}
+  {% set liv = (m.status == 'LIVE')     %}
+  {% set hs  = m.home_score %}
+  {% set as_ = m.away_score %}
+  {% set hw  = fin and hs is not none and as_ is not none and hs > as_ %}
+  {% set aw  = fin and hs is not none and as_ is not none and as_ > hs %}
+  <div class="bk-card {% if liv %}is-live{% elif fin %}is-finished{% endif %}">
+    <div class="bk-team {% if hw %}win-bg{% endif %}">
+      <span class="bk-flag" data-flag="{{ m.home_name }}">🏳</span>
+      <div class="bk-info">
+        <div class="bk-name {% if m.home_eliminated %}elim{% elif hw %}winner{% endif %}">
+          {{ m.home_name }}</div>
+        {% if m.home_owner %}<div class="bk-owner">{{ m.home_owner }}</div>{% endif %}
+      </div>
+      <span class="bk-score {% if hw %}winner{% endif %}">
+        {{ hs if hs is not none else '—' }}</span>
+    </div>
+    <div class="bk-div"></div>
+    <div class="bk-team {% if aw %}win-bg{% endif %}">
+      <span class="bk-flag" data-flag="{{ m.away_name }}">🏳</span>
+      <div class="bk-info">
+        <div class="bk-name {% if m.away_eliminated %}elim{% elif aw %}winner{% endif %}">
+          {{ m.away_name }}</div>
+        {% if m.away_owner %}<div class="bk-owner">{{ m.away_owner }}</div>{% endif %}
+      </div>
+      <span class="bk-score {% if aw %}winner{% endif %}">
+        {{ as_ if as_ is not none else '—' }}</span>
+    </div>
+    {% if liv %}<div class="bk-live-badge">● LIVE</div>{% endif %}
+  </div>
+{% else %}
+  {# TBD placeholder – shown when a match slot hasn't been decided yet #}
+  <div class="bk-card is-tbd" style="opacity:.45;">
+    <div class="bk-team">
+      <span class="bk-flag">🏴</span>
+      <div class="bk-info"><div class="bk-name tbd">TBD</div></div>
+      <span class="bk-score" style="color:#1f2937;">—</span>
+    </div>
+    <div class="bk-div"></div>
+    <div class="bk-team">
+      <span class="bk-flag">🏴</span>
+      <div class="bk-info"><div class="bk-name tbd">TBD</div></div>
+      <span class="bk-score" style="color:#1f2937;">—</span>
+    </div>
+  </div>
+{% endif %}
+{% endmacro %}
+
+
+{# ── Round column: n_slots cards, space-around so centres align ───────── #}
+{#    total_h / conn_w passed explicitly because Jinja2 macros have their  #}
+{#    own scope and cannot see outer {% set %} variables.                   #}
+{% macro round_col(matches, n_slots, total_h=800, card_w=180) %}
+<div style="display:flex; flex-direction:column; justify-content:space-around;
+            height:{{ total_h }}px; width:{{ card_w }}px; flex-shrink:0;">
+  {% for i in range(n_slots) %}
+    {% set m = matches[i] if i < (matches | length) else none %}
+    <div style="display:flex; align-items:center; justify-content:center;
+                height:{{ total_h // n_slots }}px;">
+      {{ card(m) }}
+    </div>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+
+{# ── Left-side SVG connector: n inputs on left → n/2 outputs on right ─── #}
+{#                                                                           #}
+{#  Math: for N matches space-around in height H, the i-th match centre    #}
+{#  sits at  y = H × (2i+1) / (2N)  = slot_h × (2i+1) / 2                 #}
+{#  where slot_h = H/N.                                                     #}
+{#                                                                           #}
+{#  Pair j (0-indexed) groups matches 2j and 2j+1:                          #}
+{#    y_top = slot_h × (4j+1)/2 = slot_h × (2j + 0.5)                      #}
+{#    y_bot = slot_h × (4j+3)/2 = slot_h × (2j + 1.5)                      #}
+{#    y_mid = slot_h × (4j+2)/2 = slot_h × (2j + 1)   ← output centre     #}
+{#                                                                           #}
+{#  Integer-safe form:                                                       #}
+{#    slot_h_n = total_h // n                                                #}
+{#    y_top = slot_h_n * (4j+1) // 2                                        #}
+{#    y_bot = slot_h_n * (4j+3) // 2                                        #}
+{#    y_mid = slot_h_n * (4j+2) // 2  =  slot_h_n * (2j+1)                 #}
+{% macro left_conn(n, total_h=800, conn_w=26) %}
+{% set sh = total_h // n %}
+{% set cx = conn_w // 2 %}
+<svg width="{{ conn_w }}" height="{{ total_h }}"
+     style="flex-shrink:0; display:block; overflow:visible;">
+  {% for j in range(n // 2) %}
+    {% set y_top = sh * (4 * j + 1) // 2 %}
+    {% set y_bot = sh * (4 * j + 3) // 2 %}
+    {% set y_mid = sh * (2 * j + 1)      %}
+    {# Horizontal stubs from match edges to the vertical spine #}
+    <line x1="0"  y1="{{ y_top }}" x2="{{ cx }}" y2="{{ y_top }}" stroke="#374151" stroke-width="2"/>
+    <line x1="0"  y1="{{ y_bot }}" x2="{{ cx }}" y2="{{ y_bot }}" stroke="#374151" stroke-width="2"/>
+    {# Vertical spine connecting the pair #}
+    <line x1="{{ cx }}" y1="{{ y_top }}" x2="{{ cx }}" y2="{{ y_bot }}" stroke="#374151" stroke-width="2"/>
+    {# Output stub from spine midpoint to the next-round card #}
+    <line x1="{{ cx }}" y1="{{ y_mid }}" x2="{{ conn_w }}" y2="{{ y_mid }}" stroke="#374151" stroke-width="2"/>
+  {% endfor %}
+</svg>
+{% endmacro %}
+
+
+{# ── Right-side SVG connector: mirror of left_conn ───────────────────── #}
+{% macro right_conn(n, total_h=800, conn_w=26) %}
+{% set sh = total_h // n %}
+{% set cx = conn_w // 2 %}
+<svg width="{{ conn_w }}" height="{{ total_h }}"
+     style="flex-shrink:0; display:block; overflow:visible;">
+  {% for j in range(n // 2) %}
+    {% set y_top = sh * (4 * j + 1) // 2 %}
+    {% set y_bot = sh * (4 * j + 3) // 2 %}
+    {% set y_mid = sh * (2 * j + 1)      %}
+    <line x1="{{ conn_w }}" y1="{{ y_top }}" x2="{{ cx }}" y2="{{ y_top }}" stroke="#374151" stroke-width="2"/>
+    <line x1="{{ conn_w }}" y1="{{ y_bot }}" x2="{{ cx }}" y2="{{ y_bot }}" stroke="#374151" stroke-width="2"/>
+    <line x1="{{ cx }}" y1="{{ y_top }}" x2="{{ cx }}" y2="{{ y_bot }}" stroke="#374151" stroke-width="2"/>
+    <line x1="{{ cx }}" y1="{{ y_mid }}" x2="0" y2="{{ y_mid }}" stroke="#374151" stroke-width="2"/>
+  {% endfor %}
+</svg>
+{% endmacro %}
+
+
+{# ── Simple horizontal connector: SF ↔ Final (1 match → 1 match) ──────── #}
+{% macro horiz_conn(total_h=800, conn_w=26) %}
+<svg width="{{ conn_w }}" height="{{ total_h }}"
+     style="flex-shrink:0; display:block;">
+  <line x1="0" y1="{{ total_h // 2 }}"
+        x2="{{ conn_w }}" y2="{{ total_h // 2 }}"
+        stroke="#374151" stroke-width="2"/>
+</svg>
+{% endmacro %}
+
+
+{# ══════════════════════════════════════════════════════════════════════════
+   DATA PREPARATION
+   Split each stage into left (first half) and right (second half) so the
+   two bracket halves open from the Final outward.
+══════════════════════════════════════════════════════════════════════════ #}
+
+{% set r32_all = rounds.get("R32",   []) %}
+{% set r16_all = rounds.get("R16",   []) %}
+{% set qf_all  = rounds.get("QF",    []) %}
+{% set sf_all  = rounds.get("SF",    []) %}
+{% set fin_all = rounds.get("FINAL", []) %}
+
+{% set r32_l = r32_all[:8]   %}  {% set r32_r = r32_all[8:16]  %}
+{% set r16_l = r16_all[:4]   %}  {% set r16_r = r16_all[4:8]   %}
+{% set qf_l  = qf_all[:2]    %}  {% set qf_r  = qf_all[2:4]    %}
+{% set sf_l  = sf_all[:1]    %}  {% set sf_r  = sf_all[1:2]    %}
+{% set fin_m = fin_all[0] if fin_all else none %}
+
+
+{# ══════════════════════════════════════════════════════════════════════════
+   PAGE HEADER
+══════════════════════════════════════════════════════════════════════════ #}
+
+<div class="mb-4 flex items-center justify-between flex-wrap gap-2">
+  <h1 class="text-2xl font-bold text-yellow-400">Knockout Bracket</h1>
+  <p class="text-xs text-gray-500">
+    <span class="line-through text-gray-500">Strikethrough</span> = eliminated
+    &nbsp;·&nbsp;
+    <span class="text-yellow-400 font-semibold">Yellow</span> = winner / advancing
+    &nbsp;·&nbsp; scroll horizontally if needed
+  </p>
+</div>
+
+
+{# ══════════════════════════════════════════════════════════════════════════
+   BRACKET  (horizontally scrollable)
+══════════════════════════════════════════════════════════════════════════ #}
+
+<div style="overflow-x:auto; padding-bottom:24px; -webkit-overflow-scrolling:touch;">
+
+  {# ── Column headers ──────────────────────────────────────────────────── #}
+  {# Width sequence matches the bracket body below exactly.                 #}
+  <div style="display:flex; align-items:flex-end; min-width:fit-content;">
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Round of 32</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Round of 16</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Quarters</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Semis</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W + 8 }}px; color:#f59e0b; font-size:11px;">⚽ Final</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Semis</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Quarters</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Round of 16</div>
+    <div class="rnd-hdr conn-hdr" style="width:{{ CONN_W }}px;"></div>
+    <div class="rnd-hdr" style="width:{{ CARD_W }}px;">Round of 32</div>
+  </div>
+
+  {# ── Bracket body ────────────────────────────────────────────────────── #}
+  <div style="display:flex; align-items:flex-start; min-width:fit-content;">
+
+    {# ── LEFT half:  R32 → R16 → QF → SF → [connector to Final] ───────── #}
+    {{ round_col(r32_l, 8,  TOTAL_H, CARD_W) }}
+    {{ left_conn(8,         TOTAL_H, CONN_W) }}
+    {{ round_col(r16_l, 4,  TOTAL_H, CARD_W) }}
+    {{ left_conn(4,         TOTAL_H, CONN_W) }}
+    {{ round_col(qf_l,  2,  TOTAL_H, CARD_W) }}
+    {{ left_conn(2,         TOTAL_H, CONN_W) }}
+    {{ round_col(sf_l,  1,  TOTAL_H, CARD_W) }}
+    {{ horiz_conn(          TOTAL_H, CONN_W) }}
+
+    {# ── FINAL (centred vertically in total_h) ───────────────────────────── #}
+    <div style="display:flex; align-items:center; justify-content:center;
+                height:{{ TOTAL_H }}px; width:{{ CARD_W + 8 }}px; flex-shrink:0;">
+      {{ card(fin_m) }}
+    </div>
+
+    {# ── RIGHT half: [connector from Final] → SF → QF → R16 → R32 ──────── #}
+    {{ horiz_conn(          TOTAL_H, CONN_W) }}
+    {{ round_col(sf_r,  1,  TOTAL_H, CARD_W) }}
+    {{ right_conn(2,        TOTAL_H, CONN_W) }}
+    {{ round_col(qf_r,  2,  TOTAL_H, CARD_W) }}
+    {{ right_conn(4,        TOTAL_H, CONN_W) }}
+    {{ round_col(r16_r, 4,  TOTAL_H, CARD_W) }}
+    {{ right_conn(8,        TOTAL_H, CONN_W) }}
+    {{ round_col(r32_r, 8,  TOTAL_H, CARD_W) }}
+
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>window.resolveFlags(document.body);</script>
+{% endblock %}

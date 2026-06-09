@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – WC 2026 Pool{% endblock %}
+
+{% block content %}
+
+{# ── 1. Trend Chart (collapsible) ───────────────────────────────────────── #}
+<section class="mb-6 rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+  <button id="chart-toggle"
+          onclick="toggleChart()"
+          class="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold
+                 text-gray-300 hover:bg-gray-800 transition">
+    <span>📈 Points Trend</span>
+    <span id="chart-chevron" class="text-gray-500 transition-transform duration-300">▲</span>
+  </button>
+  <div id="chart-container" class="px-5 pb-5">
+    <canvas id="trendChart" height="100"></canvas>
+  </div>
+</section>
+
+{# ── 2. View Switcher ───────────────────────────────────────────────────── #}
+<div class="flex gap-2 mb-6" role="group">
+  <button id="btn-standings"
+          onclick="switchView('standings')"
+          class="view-btn active-view px-5 py-2 rounded-lg text-sm font-semibold transition">
+    🏆 Standings Leaderboard
+  </button>
+  <button id="btn-matrix"
+          onclick="switchView('matrix')"
+          class="view-btn inactive-view px-5 py-2 rounded-lg text-sm font-semibold transition">
+    ⚽ Teams &amp; Owners Matrix
+  </button>
+</div>
+
+{# ── 3. Standings Leaderboard ───────────────────────────────────────────── #}
+<div id="view-standings">
+  <div class="rounded-xl border border-gray-800 overflow-hidden">
+
+    {# Column headers #}
+    <div class="grid grid-cols-[3rem_1fr_7rem_10rem] gap-0 bg-gray-800
+                text-gray-400 uppercase text-xs font-semibold px-4 py-2">
+      <span>#</span>
+      <span>Manager</span>
+      <span class="text-right">Points</span>
+      <span class="text-right pr-2">Teams</span>
+    </div>
+
+    {% for entry in leaderboard %}
+    <div class="leaderboard-entry border-t border-gray-800">
+
+      {# Clickable row #}
+      <div class="grid grid-cols-[3rem_1fr_7rem_10rem] gap-0 px-4 py-3
+                  cursor-pointer hover:bg-gray-800/60 transition select-none
+                  {% if loop.index == 1 %}bg-yellow-900/20{% elif loop.index == 2 %}bg-gray-700/20
+                  {% elif loop.index == 3 %}bg-orange-900/10{% else %}bg-gray-900{% endif %}"
+           hx-get="/dashboard/user/{{ entry.user_id }}/breakdown"
+           hx-target="#breakdown-{{ entry.user_id }}"
+           hx-swap="outerHTML"
+           hx-trigger="click"
+           hx-indicator="#spinner-{{ entry.user_id }}">
+
+        {# Rank #}
+        <span class="font-bold text-gray-400 self-center">
+          {% if entry.rank == 1 %}🥇
+          {% elif entry.rank == 2 %}🥈
+          {% elif entry.rank == 3 %}🥉
+          {% else %}{{ entry.rank }}{% endif %}
+        </span>
+
+        {# Name #}
+        <span class="font-semibold self-center truncate">
+          {{ entry.user_name }}
+          <span id="spinner-{{ entry.user_id }}"
+                class="htmx-indicator ml-1 text-xs text-yellow-400 animate-pulse">⏳</span>
+        </span>
+
+        {# Points #}
+        <span class="text-right font-bold text-yellow-400 text-lg self-center">
+          {{ entry.total_points }}
+        </span>
+
+        {# Team count pill #}
+        <span class="text-right text-xs text-gray-500 self-center pr-2">
+          {{ entry.teams | length }} team{% if entry.teams | length != 1 %}s{% endif %}
+          <span class="ml-1 text-gray-600">▾</span>
+        </span>
+      </div>
+
+      {# Breakdown drawer placeholder – replaced by HTMX on click #}
+      <div id="breakdown-{{ entry.user_id }}"></div>
+
+    </div>
+    {% else %}
+    <div class="px-4 py-8 text-center text-gray-500 italic">
+      No scores yet — leaderboard populates after matches are synced.
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── 4. Teams & Owners Matrix (lazy-loaded via HTMX on tab switch) ─────── #}
+<div id="view-matrix" class="hidden">
+  {# Content injected by htmx.trigger() when this tab is first activated #}
+  <div id="matrix-content"
+       hx-get="/dashboard/teams-matrix"
+       hx-trigger="load-matrix"
+       hx-swap="outerHTML"
+       hx-indicator="#matrix-spinner">
+    <div id="matrix-spinner" class="py-16 text-center text-gray-500">
+      <span class="animate-pulse text-2xl">⚽</span>
+      <p class="mt-2 text-sm">Loading teams matrix…</p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+// ── Chart ──────────────────────────────────────────────────────────────────
+let chartInstance = null;
+let chartCollapsed = false;
+
+async function initChart() {
+  const res  = await fetch('/dashboard/chart-data');
+  const data = await res.json();
+  if (!data.labels || data.labels.length === 0) return;
+
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: data,
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: { color: '#d1d5db', boxWidth: 12, padding: 16, font: { size: 11 } }
+        },
+        tooltip: {
+          backgroundColor: '#1f2937',
+          titleColor: '#f9fafb',
+          bodyColor: '#d1d5db',
+          borderColor: '#374151',
+          borderWidth: 1,
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#9ca3af', maxRotation: 30, font: { size: 10 } },
+          grid:  { color: '#1f2937' }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#9ca3af', font: { size: 11 } },
+          grid:  { color: '#374151' }
+        }
+      }
+    }
+  });
+}
+
+function toggleChart() {
+  const container = document.getElementById('chart-container');
+  const chevron   = document.getElementById('chart-chevron');
+  chartCollapsed  = !chartCollapsed;
+  if (chartCollapsed) {
+    container.style.maxHeight = '0';
+    container.style.overflow  = 'hidden';
+    container.style.paddingBottom = '0';
+    chevron.style.transform = 'rotate(180deg)';
+  } else {
+    container.style.maxHeight = '';
+    container.style.overflow  = '';
+    container.style.paddingBottom = '';
+    chevron.style.transform = '';
+    if (chartInstance) chartInstance.resize();
+  }
+}
+
+// ── View switcher ──────────────────────────────────────────────────────────
+let matrixLoaded = false;
+
+function switchView(view) {
+  const standings = document.getElementById('view-standings');
+  const matrix    = document.getElementById('view-matrix');
+  const btnS      = document.getElementById('btn-standings');
+  const btnM      = document.getElementById('btn-matrix');
+
+  if (view === 'standings') {
+    standings.classList.remove('hidden');
+    matrix.classList.add('hidden');
+    btnS.classList.replace('inactive-view', 'active-view');
+    btnM.classList.replace('active-view', 'inactive-view');
+  } else {
+    standings.classList.add('hidden');
+    matrix.classList.remove('hidden');
+    btnM.classList.replace('inactive-view', 'active-view');
+    btnS.classList.replace('active-view', 'inactive-view');
+
+    // Lazy-load matrix content on first activation
+    if (!matrixLoaded) {
+      const el = document.getElementById('matrix-content');
+      if (el) htmx.trigger(el, 'load-matrix');
+      matrixLoaded = true;
+    }
+  }
+}
+
+// ── Tailwind classes for active/inactive view buttons ──────────────────────
+// Injected as style strings so Tailwind CDN picks them up
+document.head.insertAdjacentHTML('beforeend', `<style>
+  .active-view   { background:#d97706; color:#111827; }
+  .inactive-view { background:#374151; color:#d1d5db; }
+  .inactive-view:hover { background:#4b5563; }
+  .htmx-indicator { display:none; }
+  .htmx-request .htmx-indicator { display:inline; }
+</style>`);
+
+// Bootstrap
+initChart();
+</script>
+{% endblock %}

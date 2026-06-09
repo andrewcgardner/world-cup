@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Teams – WC 2026 Pool{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">National Teams by Pot</h1>
+  {% if not editable %}
+    <span class="text-xs bg-red-800 text-red-200 px-3 py-1 rounded-full">
+      Draft started – read-only
+    </span>
+  {% else %}
+    <span class="text-xs bg-green-800 text-green-200 px-3 py-1 rounded-full">
+      Pre-Draft: pot assignments editable (admins only)
+    </span>
+  {% endif %}
+</div>
+
+{% for pot_num in [1,2,3,4] %}
+<section class="mb-10">
+  <h2 class="text-lg font-semibold text-yellow-400 mb-3">Pot {{ pot_num }}</h2>
+  <div class="overflow-x-auto rounded-lg border border-gray-800">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-800 text-gray-400 uppercase text-xs">
+        <tr>
+          <th class="px-4 py-2 text-left">Country</th>
+          <th class="px-4 py-2 text-left">FIFA Rank</th>
+          <th class="px-4 py-2 text-left">Group</th>
+          <th class="px-4 py-2 text-left">Pot</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-800">
+        {% for team in pots[pot_num] %}
+          {% include "fragments/team_row.html" %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

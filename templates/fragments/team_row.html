@@ -1,0 +1,27 @@
+{# Included by teams.html AND returned as HTMX swap target after pot update. #}
+<tr id="team-row-{{ team.id }}" class="bg-gray-900 hover:bg-gray-800 transition">
+  <td class="px-4 py-2 font-medium">{{ team.country_name }}</td>
+  <td class="px-4 py-2 text-gray-400">{{ team.fifa_rank or '–' }}</td>
+  <td class="px-4 py-2 text-gray-400">{{ team.group_letter or '–' }}</td>
+  <td class="px-4 py-2">
+    {% if editable %}
+      <form hx-post="/teams/{{ team.id }}/pot"
+            hx-target="#team-row-{{ team.id }}"
+            hx-swap="outerHTML"
+            class="flex items-center gap-2">
+        <select name="pot_number"
+                class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500">
+          {% for p in [1,2,3,4] %}
+            <option value="{{ p }}" {% if p == team.pot_number %}selected{% endif %}>Pot {{ p }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit"
+                class="text-xs bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-semibold px-2 py-1 rounded transition">
+          Save
+        </button>
+      </form>
+    {% else %}
+      <span class="text-gray-400">Pot {{ team.pot_number }}</span>
+    {% endif %}
+  </td>
+</tr>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-950">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}WC 2026 Pool{% endblock %}</title>
+  <!-- Tailwind CSS CDN (v3 Play CDN for dev; replace with built CSS in production) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    @keyframes pulse-badge { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .live-badge { animation: pulse-badge 1.5s ease-in-out infinite; }
+  </style>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       Global flag map — single source of truth for all templates.
+       Country name → emoji flag.  Subdivision flags (England, Scotland,
+       Wales) are constructed via Unicode tag sequences since the literal
+       characters are unreliable across editors / encodings.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <script>
+  (function () {
+    // Build a subdivision flag from its BCP-47 subtag string (e.g. "gbeng")
+    function mkSubdivFlag(subtag) {
+      const base = 0xE0000;
+      const chars = [0x1F3F4];
+      for (let i = 0; i < subtag.length; i++) chars.push(base + subtag.charCodeAt(i));
+      chars.push(0xE007F);
+      return String.fromCodePoint(...chars);
+    }
+
+    window.FLAG_MAP = {
+      // ── Hosts ───────────────────────────────────────────────────────────
+      "United States": "🇺🇸", "USA": "🇺🇸",
+      "Canada": "🇨🇦",
+      "Mexico": "🇲🇽",
+
+      // ── CONMEBOL ─────────────────────────────────────────────────────────
+      "Argentina": "🇦🇷", "Brazil": "🇧🇷", "Uruguay": "🇺🇾",
+      "Colombia": "🇨🇴", "Ecuador": "🇪🇨", "Chile": "🇨🇱",
+      "Venezuela": "🇻🇪", "Paraguay": "🇵🇾", "Peru": "🇵🇪",
+      "Bolivia": "🇧🇴",
+
+      // ── UEFA ─────────────────────────────────────────────────────────────
+      "France": "🇫🇷", "Spain": "🇪🇸", "Portugal": "🇵🇹",
+      "Netherlands": "🇳🇱", "Germany": "🇩🇪", "Belgium": "🇧🇪",
+      "Croatia": "🇭🇷", "Italy": "🇮🇹", "Switzerland": "🇨🇭",
+      "Denmark": "🇩🇰", "Austria": "🇦🇹", "Turkey": "🇹🇷",
+      "Serbia": "🇷🇸", "Poland": "🇵🇱", "Norway": "🇳🇴",
+      "Sweden": "🇸🇪", "Czech Republic": "🇨🇿", "Czechia": "🇨🇿",
+      "Hungary": "🇭🇺", "Slovakia": "🇸🇰", "Slovenia": "🇸🇮",
+      "Romania": "🇷🇴", "Ukraine": "🇺🇦", "Greece": "🇬🇷",
+      "Bosnia": "🇧🇦", "Bosnia and Herzegovina": "🇧🇦",
+      "North Macedonia": "🇲🇰", "Albania": "🇦🇱",
+      "Finland": "🇫🇮", "Iceland": "🇮🇸",
+      "Republic of Ireland": "🇮🇪", "Ireland": "🇮🇪",
+      "Russia": "🇷🇺", "Georgia": "🇬🇪", "Kosovo": "🇽🇰",
+      "Azerbaijan": "🇦🇿", "Kazakhstan": "🇰🇿",
+      "Belarus": "🇧🇾", "Bulgaria": "🇧🇬",
+      "Luxembourg": "🇱🇺", "Montenegro": "🇲🇪",
+      "Estonia": "🇪🇪", "Latvia": "🇱🇻", "Lithuania": "🇱🇹",
+      "Cyprus": "🇨🇾", "Malta": "🇲🇹",
+      // Subdivision flags built programmatically to survive file encoding
+      "England":  mkSubdivFlag("gbeng"),
+      "Scotland": mkSubdivFlag("gbsct"),
+      "Wales":    mkSubdivFlag("gbwls"),
+
+      // ── AFC ──────────────────────────────────────────────────────────────
+      "Japan": "🇯🇵", "South Korea": "🇰🇷", "Korea Republic": "🇰🇷",
+      "Australia": "🇦🇺", "Iran": "🇮🇷", "Saudi Arabia": "🇸🇦",
+      "Iraq": "🇮🇶", "UAE": "🇦🇪", "Qatar": "🇶🇦",
+      "Uzbekistan": "🇺🇿", "Jordan": "🇯🇴", "Oman": "🇴🇲",
+      "Bahrain": "🇧🇭", "Kuwait": "🇰🇼", "China": "🇨🇳",
+      "India": "🇮🇳", "Vietnam": "🇻🇳", "Thailand": "🇹🇭",
+      "Indonesia": "🇮🇩", "Syria": "🇸🇾", "Palestine": "🇵🇸",
+      "Kyrgyzstan": "🇰🇬", "Tajikistan": "🇹🇯",
+      "Afghanistan": "🇦🇫", "Lebanon": "🇱🇧", "Yemen": "🇾🇪",
+
+      // ── CAF ──────────────────────────────────────────────────────────────
+      "Morocco": "🇲🇦", "Senegal": "🇸🇳", "Cameroon": "🇨🇲",
+      "Algeria": "🇩🇿", "Nigeria": "🇳🇬", "Egypt": "🇪🇬",
+      "Mali": "🇲🇱", "Ivory Coast": "🇨🇮", "Côte d'Ivoire": "🇨🇮",
+      "South Africa": "🇿🇦", "Ghana": "🇬🇭", "Tunisia": "🇹🇳",
+      "DR Congo": "🇨🇩", "Congo DR": "🇨🇩",
+      "Democratic Republic of the Congo": "🇨🇩",
+      "Democratic Republic of Congo": "🇨🇩", "DRC": "🇨🇩",
+      "Cape Verde": "🇨🇻", "Cabo Verde": "🇨🇻",
+      "Zambia": "🇿🇲", "Tanzania": "🇹🇿", "Uganda": "🇺🇬",
+      "Rwanda": "🇷🇼", "Burkina Faso": "🇧🇫", "Guinea": "🇬🇳",
+      "Gabon": "🇬🇦", "Congo": "🇨🇬", "Ethiopia": "🇪🇹",
+      "Mozambique": "🇲🇿", "Zimbabwe": "🇿🇼", "Benin": "🇧🇯",
+      "Niger": "🇳🇪", "Namibia": "🇳🇦", "Libya": "🇱🇾",
+      "Kenya": "🇰🇪", "Gambia": "🇬🇲", "Sudan": "🇸🇩",
+      "Angola": "🇦🇴", "Malawi": "🇲🇼", "Comoros": "🇰🇲",
+      "Togo": "🇹🇬", "Mauritania": "🇲🇷", "Sierra Leone": "🇸🇱",
+      "Equatorial Guinea": "🇬🇶",
+
+      // ── CONCACAF ─────────────────────────────────────────────────────────
+      "Costa Rica": "🇨🇷", "Panama": "🇵🇦", "Honduras": "🇭🇳",
+      "Guatemala": "🇬🇹", "Jamaica": "🇯🇲", "Haiti": "🇭🇹",
+      "Trinidad and Tobago": "🇹🇹", "Trinidad & Tobago": "🇹🇹",
+      "El Salvador": "🇸🇻", "Cuba": "🇨🇺",
+      "Curacao": "🇨🇼", "Curaçao": "🇨🇼",
+      "Nicaragua": "🇳🇮", "Belize": "🇧🇿",
+      "Barbados": "🇧🇧", "Antigua and Barbuda": "🇦🇬",
+
+      // ── OFC ──────────────────────────────────────────────────────────────
+      "New Zealand": "🇳🇿", "Fiji": "🇫🇯",
+      "Papua New Guinea": "🇵🇬", "Solomon Islands": "🇸🇧",
+    };
+
+    // Resolve all [data-flag] elements on the page.
+    // Call after new content is inserted (or HTMX swap completes).
+    window.resolveFlags = function (root) {
+      (root || document).querySelectorAll('[data-flag]').forEach(el => {
+        const flag = window.FLAG_MAP[el.dataset.flag];
+        if (flag) el.textContent = flag;
+      });
+    };
+
+    // Auto-resolve on full page load
+    document.addEventListener('DOMContentLoaded', () => window.resolveFlags());
+  })();
+  </script>
+</head>
+<body class="h-full text-gray-100 antialiased">
+
+  <!-- Nav -->
+  <nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center gap-6">
+    <span class="text-xl font-bold text-yellow-400">⚽ WC 2026 Pool</span>
+    <a href="/matches"   class="text-sm hover:text-yellow-400 transition">Matches</a>
+    <a href="/standings" class="text-sm hover:text-yellow-400 transition">Standings</a>
+    <a href="/bracket"   class="text-sm hover:text-yellow-400 transition">Bracket</a>
+    <a href="/reveal"    class="text-sm hover:text-yellow-400 transition">Team Assignments</a>
+    <a href="/dashboard" class="text-sm hover:text-yellow-400 transition">Leaderboard</a>
+    <a href="/admin/panel" class="text-sm hover:text-yellow-400 transition">⚙ Admin</a>
+    <a href="/admin/logout" class="ml-auto text-xs text-gray-600 hover:text-gray-400 transition">Sign out</a>
+  </nav>
+
+  <!-- Page content -->
+  <main class="{% block main_class %}max-w-6xl{% endblock %} mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+
+</body>
+</html>

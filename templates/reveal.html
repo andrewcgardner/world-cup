@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}Draft Reveal – WC 2026 Pool{% endblock %}
+
+{% block content %}
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   PHASE 1 – RETRO TERMINAL
+   Fixed-position overlay (z-100) covers the entire viewport including the
+   nav bar.  Removed from the DOM after the CSS exit animation completes.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div id="terminal-phase"
+     class="fixed inset-0 bg-black flex flex-col"
+     style="z-index:100; font-family:'Courier New',Courier,monospace;">
+
+  {# Scanline + vignette overlay — pure CSS, no images #}
+  <div class="pointer-events-none absolute inset-0" style="
+    background:
+      repeating-linear-gradient(
+        0deg,
+        transparent 0px, transparent 2px,
+        rgba(0,0,0,.18) 2px, rgba(0,0,0,.18) 4px
+      ),
+      radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,.55) 100%);
+    z-index:1;"></div>
+
+  {# Scrolling log area #}
+  <div id="terminal-log"
+       class="flex-1 overflow-y-auto px-6 py-6 text-sm leading-relaxed"
+       style="color:#00ff41;
+              text-shadow:0 0 7px #00ff41, 0 0 14px rgba(0,255,65,.4);
+              scrollbar-width:none;
+              z-index:2;"></div>
+
+  {# Blinking cursor line at the bottom #}
+  <div class="px-6 py-4 flex items-center gap-1" style="z-index:2;">
+    <span style="color:#00ff41;">$&nbsp;</span>
+    <span id="terminal-cursor"
+          style="display:inline-block; width:10px; height:1.1em;
+                 background:#00ff41;
+                 animation:termCursorBlink 1s step-end infinite;"></span>
+  </div>
+</div>
+
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   PHASE 2 – MODERN REVEAL GRID
+   Hidden until the terminal transition fires.  The grid grows as HTMX
+   appends pick cards one at a time via the chain-trigger mechanism.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div id="reveal-phase" class="hidden -mt-8">
+
+  {# ── Header ─────────────────────────────────────────────────────────── #}
+  <div class="flex items-center justify-between mb-4 pt-2">
+    <div>
+      <h1 class="text-2xl font-black text-yellow-400 tracking-tight">⚽ Draft Reveal</h1>
+      <p class="text-xs text-gray-500 mt-0.5">@BraintreeBoyz World Cup 2026 Pool</p>
+    </div>
+    <div class="text-right">
+      <p class="text-xs text-gray-500 mb-1">Picks revealed</p>
+      <p class="text-2xl font-black tabular-nums">
+        <span id="pick-counter">0</span>
+        <span class="text-gray-600 text-base font-normal">/ {{ max_sequence }}</span>
+      </p>
+    </div>
+  </div>
+
+  {# ── Progress bar ────────────────────────────────────────────────────── #}
+  <div class="w-full bg-gray-800 rounded-full h-1 mb-6 overflow-hidden">
+    <div id="progress-fill"
+         class="bg-yellow-500 h-1 rounded-full"
+         style="width:0%; transition:width 0.7s ease-out;"></div>
+  </div>
+
+  {# ── Pick grid — cards are appended here by HTMX ─────────────────────── #}
+  <div id="pick-grid"
+       class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-8">
+  </div>
+
+  {# ── Completion zone — replaced via HTMX OOB on pick 48 ──────────────── #}
+  <div id="completion-zone"></div>
+
+  {# ── HTMX chain trigger ──────────────────────────────────────────────── #}
+  {# Starts idle; JS fires 'reveal-start' after terminal transition ends.   #}
+  {# Each pick fragment replaces this element via hx-swap-oob to queue      #}
+  {# the next pick. When picks finish it is replaced with an empty div.     #}
+  <div id="chain-trigger"
+       hx-get="/reveal/stream/1"
+       hx-trigger="reveal-start"
+       hx-target="#pick-grid"
+       hx-swap="beforeend"></div>
+
+</div>
+
+
+{# ─────────────────────────────────────────────────────────────────────────
+   Styles & animations
+   ───────────────────────────────────────────────────────────────────────── #}
+<style>
+  /* ── Terminal cursor ───────────────────────────────────────────── */
+  @keyframes termCursorBlink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+  }
+
+  /* ── Phase 1 → Phase 2 transition ─────────────────────────────── */
+  /* Exit: terminal shrinks + fades with a brightness flash */
+  @keyframes terminalExit {
+    0%   { opacity:1; transform:scale(1);    filter:brightness(1); }
+    30%  { opacity:1; transform:scale(1.01); filter:brightness(1.8); }
+    70%  { opacity:0.4; transform:scale(0.97); filter:brightness(0.5); }
+    100% { opacity:0; transform:scale(0.94); filter:brightness(0); }
+  }
+  /* Enter: reveal content scales up softly */
+  @keyframes revealEnter {
+    from { opacity:0; transform:scale(1.015); }
+    to   { opacity:1; transform:scale(1); }
+  }
+
+  .phase-exiting { animation: terminalExit 700ms cubic-bezier(.4,0,.2,1) forwards; }
+  .phase-entering { animation: revealEnter 650ms cubic-bezier(.2,0,.1,1) forwards; }
+
+  /* ── Pick card base (entrance handled entirely by JS pop-and-settle) ── */
+  .pick-card {
+    opacity: 0;      /* JS sets this to 1 after the clone settles */
+    will-change: opacity, transform;
+  }
+
+  /* ── Grid-ripple: fired on neighbours when a new card lands ────────── */
+  @keyframes rippleHit {
+    0%   { transform: scale(1);    filter: brightness(1); }
+    35%  { transform: scale(1.06); filter: brightness(1.4); }
+    65%  { transform: scale(0.98); filter: brightness(0.95); }
+    100% { transform: scale(1);    filter: brightness(1); }
+  }
+  .ripple-hit {
+    animation: rippleHit 340ms cubic-bezier(.25,0,.5,1.4) forwards;
+  }
+
+  /* ── Pot accent colours ────────────────────────────────────────── */
+  .pot-border-1 { border-color: #d97706; } /* amber  */
+  .pot-border-2 { border-color: #3b82f6; } /* blue   */
+  .pot-border-3 { border-color: #10b981; } /* emerald*/
+  .pot-border-4 { border-color: #8b5cf6; } /* violet */
+
+  .pot-badge-1 { background:#78350f; color:#fde68a; }
+  .pot-badge-2 { background:#1e3a5f; color:#93c5fd; }
+  .pot-badge-3 { background:#064e3b; color:#6ee7b7; }
+  .pot-badge-4 { background:#2e1065; color:#c4b5fd; }
+</style>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+//  REVEAL SHOW — STATE MACHINE
+//  Phase 1: terminal  →  transition (~700ms)  →  Phase 2: modern grid
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Utility ──────────────────────────────────────────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ── Terminal log content ──────────────────────────────────────────────────────
+// Each entry: { text, delay }
+// delay = ms to wait BEFORE printing this line.
+// Falsy text = blank spacer line.
+const TERMINAL_LOGS = [
+  // Fast boot sequence ─────────────────────────────────────── (50–120 ms each)
+  { text: "BWCP-OS v2026.1 ── Booting...",                           delay: 80  },
+  { text: "Loading kernel modules................. [OK]",             delay: 70  },
+  { text: "Mounting encrypted filesystems......... [OK]",             delay: 65  },
+  { text: "Starting network services.............. [OK]",             delay: 60  },
+  { text: "Establishing TLS 1.3 tunnel to pool-db.braintreeboyz.io", delay: 110 },
+  { text: "Certificate fingerprint: 4A:F9:2C:88:D1:03  [VERIFIED]",  delay: 80  },
+  { text: "Service account auth................... [GRANTED]",        delay: 70  },
+  { text: "",                                                          delay: 50  },
+
+  // Database queries ────────────────────────────────────────── (60–100 ms each)
+  { text: "── DATABASE QUERY SEQUENCE ─────────────────────────────", delay: 90 },
+  { text: "SELECT * FROM public.teams ORDER BY pot_number, fifa_rank;",delay: 75 },
+  { text: "  → 48 rows returned  [3ms]",                              delay: 60  },
+  { text: "SELECT * FROM public.users WHERE is_active = TRUE;",       delay: 75  },
+  { text: "  → 12 rows returned  [1ms]",                              delay: 55  },
+  { text: "SELECT * FROM public.picks ORDER BY reveal_sequence;",     delay: 75  },
+  { text: "  → 48 rows returned  [2ms]",                              delay: 55  },
+  { text: "",                                                          delay: 40  },
+
+  // Validation ──────────────────────────────────────────────── (60–90 ms each)
+  { text: "Validating snake draft manifest...",                        delay: 80  },
+  { text: "  Pot 1 · 12 of 12 assignments verified  ✓",               delay: 65  },
+  { text: "  Pot 2 · 12 of 12 assignments verified  ✓",               delay: 65  },
+  { text: "  Pot 3 · 12 of 12 assignments verified  ✓",               delay: 65  },
+  { text: "  Pot 4 · 12 of 12 assignments verified  ✓",               delay: 65  },
+  { text: "Integrity checksum: 3F9A·1C4D·8E2B·7F0A  [VALID]",         delay: 90  },
+  { text: "No tampering detected. Manifest sealed.",                   delay: 75  },
+  { text: "",                                                          delay: 40  },
+
+  // Prep ─────────────────────────────────────────────────────── (70–110 ms each)
+  { text: "Initialising broadcast engine...",                          delay: 90  },
+  { text: "Loading reveal timeline............. 48 picks queued.",    delay: 80  },
+  { text: "Preloading flag assets.............  [OK]",                delay: 70  },
+  { text: "Scoring engine standing by.",                               delay: 75  },
+  { text: "All systems nominal. Ready to broadcast.",                  delay: 110 },
+  { text: "",                                                          delay: 80  },
+
+  // Divider ─────────────────────────────────────────────────── (slower)
+  { text: "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", delay: 200 },
+  { text: "   BRAINTREEBOYZ WORLD CUP 2026 POOL — OFFICIAL DRAW",    delay: 150 },
+  { text: "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", delay: 150 },
+  { text: "",                                                          delay: 300 },
+
+  // Finale — deliberately slow for dramatic effect ──────────── (400–900 ms each)
+  { text: "Welcome to the official drawing for the",                  delay: 400 },
+  { text: "@BraintreeBoyz World Cup 2026 Pool.",                      delay: 500 },
+  { text: "",                                                          delay: 600 },
+  { text: "Without further ado...",                                   delay: 900 },
+];
+
+// ── Phase 1: run the terminal ─────────────────────────────────────────────────
+async function runTerminal() {
+  const logEl = document.getElementById('terminal-log');
+
+  for (const entry of TERMINAL_LOGS) {
+    await sleep(entry.delay);
+
+    const line = document.createElement('div');
+    line.style.whiteSpace = 'pre';          // preserve spacing
+    line.textContent = entry.text || ' '; // non-breaking space for blank lines
+    logEl.appendChild(line);
+
+    // Keep the bottom of the log visible
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // Pause so the last line registers, then kick off the transition
+  await sleep(1400);
+  beginTransition();
+}
+
+// ── Phase transition ──────────────────────────────────────────────────────────
+function beginTransition() {
+  const terminal = document.getElementById('terminal-phase');
+  const reveal   = document.getElementById('reveal-phase');
+
+  // 1. Play terminal exit animation
+  terminal.classList.add('phase-exiting');
+
+  // 2. After exit completes, show the modern UI
+  setTimeout(() => {
+    terminal.style.display = 'none';          // remove from flow
+
+    // Restore body scrolling (was locked during terminal)
+    document.body.style.overflow = '';
+
+    reveal.classList.remove('hidden');
+    reveal.classList.add('phase-entering');
+
+    // 3. Kick off the HTMX pick chain
+    setTimeout(() => {
+      const trigger = document.getElementById('chain-trigger');
+      if (trigger) htmx.trigger(trigger, 'reveal-start');
+    }, 120); // tiny buffer so the grid is fully painted first
+
+  }, 720); // matches terminalExit animation duration
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.body.style.overflow = 'hidden'; // prevent scroll during terminal
+runTerminal();
+</script>
+{% endblock %}
