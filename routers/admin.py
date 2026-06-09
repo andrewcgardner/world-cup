@@ -161,7 +161,14 @@ async def run_draw(request: Request, _: None = Depends(require_admin)):
         # 2. Ensure exactly 12 users exist
         users = _ensure_twelve_users(db)
 
-        # 3. Fetch & validate pot assignments, then shuffle within each pot
+        # 3. Shuffle draft order and persist it
+        random.shuffle(users)
+        draft_order = [u["id"] for u in users]
+        db.table("system_settings").update(
+            {"draft_order": draft_order}
+        ).eq("id", 1).execute()
+
+        # 4. Fetch & validate pot assignments, then shuffle within each pot
         pots = _fetch_teams_by_pot(db)
         for pot_num in range(1, TOTAL_POTS + 1):
             if len(pots.get(pot_num, [])) != TOTAL_USERS:
@@ -171,7 +178,7 @@ async def run_draw(request: Request, _: None = Depends(require_admin)):
                 )
             random.shuffle(pots[pot_num])
 
-        # 4. Execute 4-round snake draft in memory
+        # 5. Execute 4-round snake draft in memory
         picks: list[dict] = []
         sequence = 1
         for round_num in range(1, TOTAL_POTS + 1):
@@ -185,11 +192,11 @@ async def run_draw(request: Request, _: None = Depends(require_admin)):
                 })
                 sequence += 1
 
-        # 5. Bulk-insert picks
+        # 6. Bulk-insert picks
         db.table("picks").insert(picks).execute()
         picks_created = len(picks)
 
-        # 6. Advance draft status → REVEALING
+        # 7. Advance draft status → REVEALING
         db.table("system_settings").update(
             {"draft_status": DraftStatus.REVEALING}
         ).eq("id", 1).execute()
