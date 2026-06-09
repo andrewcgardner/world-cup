@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
     id              INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),   -- enforce singleton
     draft_status    TEXT NOT NULL DEFAULT 'PRE_DRAFT'
                         CHECK (draft_status IN ('PRE_DRAFT', 'REVEALING', 'COMPLETE')),
+    draft_order     jsonb DEFAULT NULL,
     -- Group stage points
     pt_group_1st    INT NOT NULL DEFAULT 15,
     pt_group_2nd    INT NOT NULL DEFAULT 10,
