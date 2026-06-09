@@ -1,0 +1,263 @@
+{#
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  pick_card.html — HTMX fragment for one draft pick                      │
+  │                                                                         │
+  │  Main content  → appended to #pick-grid (hx-swap="beforeend")           │
+  │  OOB swaps     → update #chain-trigger, #pick-counter, #progress-fill,  │
+  │                  and on final pick, #completion-zone                    │
+  │                                                                         │
+  │  Animation flow (per card):                                             │
+  │    1. Card inserted in grid at opacity:0 (invisible placeholder).       │
+  │    2. JS reads the card's finalRect via getBoundingClientRect().         │
+  │    3. A full-size clone is created, fixed at viewport centre, scale 3×. │
+  │    4. 200 ms "impact pause" — viewer sees the big glowing card pop.     │
+  │    5. Clone transitions: scale → 1, translate → finalRect, blur → 0.    │
+  │    6. Clone removed; real card made visible.                             │
+  │    7. Ripple radiates outward through neighbouring cards.               │
+  │    8. After 3 s showcase pause, JS fires 'next-pick' on #chain-trigger. │
+  └─────────────────────────────────────────────────────────────────────────┘
+#}
+
+{% if pick %}
+{% set team = pick.team %}
+{% set user = pick.user %}
+
+{# ══════════════════════════════════════════════════════════════════════════
+   MAIN CONTENT — pick card (appended to #pick-grid)
+   Starts invisible; the dramatic JS reveal makes it visible after settle.
+   ════════════════════════════════════════════════════════════════════════ #}
+<div class="pick-card relative rounded-xl border-2 pot-border-{{ team.pot_number }}
+            bg-gray-900 p-3 flex flex-col gap-2 overflow-hidden"
+     style="opacity:0;"
+     data-sequence="{{ sequence_id }}">
+
+  {# Subtle pot-colour tint in the card background #}
+  <div class="absolute inset-0 opacity-5 pointer-events-none
+    {% if team.pot_number == 1 %}bg-amber-400
+    {% elif team.pot_number == 2 %}bg-blue-400
+    {% elif team.pot_number == 3 %}bg-emerald-400
+    {% else %}bg-violet-400{% endif %}"></div>
+
+  {# ── Pick number + pot badge ────────────────────────────────────────── #}
+  <div class="relative flex items-center justify-between">
+    <span class="text-xs font-mono text-gray-500 font-bold">#{{ sequence_id }}</span>
+    <span class="text-xs font-semibold px-2 py-0.5 rounded-full pot-badge-{{ team.pot_number }}">
+      Pot {{ team.pot_number }}
+    </span>
+  </div>
+
+  {# ── Flag + team name ───────────────────────────────────────────────── #}
+  <div class="relative text-center">
+    <div class="text-4xl leading-none mb-1" data-flag="{{ team.country_name }}">🏳</div>
+    <p class="font-black text-sm text-white leading-tight">{{ team.country_name }}</p>
+    {% if team.group_letter %}
+    <p class="text-xs text-gray-500">Group {{ team.group_letter }}</p>
+    {% endif %}
+  </div>
+
+  {# ── Manager name ───────────────────────────────────────────────────── #}
+  <div class="relative mt-auto pt-2 border-t border-gray-800 text-center">
+    <p class="text-xs text-gray-400 truncate" title="{{ user.name }}">{{ user.name }}</p>
+  </div>
+
+</div>
+
+
+{# ══════════════════════════════════════════════════════════════════════════
+   INLINE SCRIPT — runs immediately after the card is injected into the DOM.
+   Handles: flag resolution, dramatic pop-and-settle reveal, chain-trigger.
+   ════════════════════════════════════════════════════════════════════════ #}
+<script>
+(function () {
+  // ── 1. Locate the card we just inserted (last .pick-card in the grid) ──
+  const grid = document.getElementById('pick-grid');
+  const cards = grid ? grid.querySelectorAll('.pick-card') : [];
+  const card  = cards[cards.length - 1];
+  if (!card) return;
+
+  // ── 2. Resolve the flag emoji via the global map ────────────────────────
+  const flagEl = card.querySelector('[data-flag]');
+  if (flagEl && window.FLAG_MAP) {
+    const f = window.FLAG_MAP[flagEl.dataset.flag];
+    if (f) flagEl.textContent = f;
+  }
+
+  // ── 3. Force a layout pass so getBoundingClientRect() is accurate ────────
+  const finalRect = card.getBoundingClientRect();
+
+  // Hide card (placeholder) — clone will fly to this position
+  card.style.opacity = '0';
+  card.style.pointerEvents = 'none';
+
+  // ── 4. Build the flying clone ─────────────────────────────────────────────
+  const clone = card.cloneNode(true);
+
+  // Starting state: fixed at viewport centre, 3× scale, glowing
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  Object.assign(clone.style, {
+    position:     'fixed',
+    top:          '50%',
+    left:         '50%',
+    width:        finalRect.width  + 'px',
+    height:       finalRect.height + 'px',
+    transform:    'translate(-50%, -50%) scale(3)',
+    zIndex:       '500',
+    opacity:      '1',
+    margin:       '0',
+    pointerEvents:'none',
+    transition:   'none',
+    animation:    'none',
+    filter:       'blur(5px) brightness(2.8)',
+    boxShadow:    [
+      '0 0  40px rgba(251,191,36,1)',
+      '0 0  80px rgba(251,191,36,0.7)',
+      '0 0 140px rgba(251,191,36,0.35)',
+      '0 30px 60px rgba(0,0,0,0.8)',
+    ].join(', '),
+  });
+
+  document.body.appendChild(clone);
+
+  // Force reflow so the browser registers the starting transform
+  void clone.getBoundingClientRect();
+
+  // ── 5. Impact pause (200 ms) then begin the settle ───────────────────────
+  setTimeout(function () {
+
+    // How far the clone's centre must travel to sit over the real card
+    const cardCx = finalRect.left + finalRect.width  / 2;
+    const cardCy = finalRect.top  + finalRect.height / 2;
+    const dx = cardCx - vw / 2;
+    const dy = cardCy - vh / 2;
+
+    // Settle transition — spring-like overshoot (1.38 > 1.0 in cubic-bezier)
+    clone.style.transition = [
+      'transform 540ms cubic-bezier(0.34, 1.38, 0.64, 1)',
+      'filter    380ms ease-out',
+      'box-shadow 380ms ease-out',
+    ].join(', ');
+
+    clone.style.transform  = 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px)) scale(1)';
+    clone.style.filter     = 'blur(0) brightness(1)';
+    clone.style.boxShadow  = '0 0 18px rgba(251,191,36,0.3), 0 8px 24px rgba(0,0,0,0.5)';
+
+    // ── 6. After settle completes, swap clone for real card ─────────────────
+    setTimeout(function () {
+
+      // Reveal the placeholder card (now visually identical to clone position)
+      card.style.opacity      = '1';
+      card.style.pointerEvents = '';
+
+      // Remove clone
+      clone.remove();
+
+      // ── 7. Ripple nearby cards ─────────────────────────────────────────────
+      var allCards = Array.from(grid.querySelectorAll('.pick-card'));
+      var idx = allCards.indexOf(card);
+      allCards.forEach(function (c, i) {
+        if (i === idx) return;
+        var dist = Math.abs(i - idx);
+        if (dist > 6) return;
+        setTimeout(function () {
+          c.classList.add('ripple-hit');
+          setTimeout(function () { c.classList.remove('ripple-hit'); }, 340);
+        }, dist * 50);
+      });
+
+      // ── 8. After 3-second showcase pause, fire the next-pick chain ─────────
+      // This means total time per pick ≈ 200ms impact + 540ms settle + 3000ms showcase
+      setTimeout(function () {
+        var trigger = document.getElementById('chain-trigger');
+        if (trigger) htmx.trigger(trigger, 'next-pick');
+      }, 3000);
+
+    }, 560); // slightly longer than the transition (540 ms)
+
+  }, 200); // impact pause duration
+
+})();
+</script>
+
+
+{# ══════════════════════════════════════════════════════════════════════════
+   OOB SWAPS — processed in parallel with main content by HTMX
+   ════════════════════════════════════════════════════════════════════════ #}
+
+{# ── Chain trigger: queue next pick via JS-fired custom event ────────────── #}
+{% if not is_final %}
+<div id="chain-trigger"
+     hx-swap-oob="true"
+     hx-get="/reveal/stream/{{ next_sequence }}"
+     hx-trigger="next-pick"
+     hx-target="#pick-grid"
+     hx-swap="beforeend">
+</div>
+{% else %}
+{# Final pick: clear the trigger so no further requests can fire #}
+<div id="chain-trigger" hx-swap-oob="true"></div>
+{% endif %}
+
+{# ── Header counter ──────────────────────────────────────────────────────── #}
+<span id="pick-counter" hx-swap-oob="true">{{ sequence_id }}</span>
+
+{# ── Progress bar fill ───────────────────────────────────────────────────── #}
+<div id="progress-fill"
+     hx-swap-oob="true"
+     class="bg-yellow-500 h-1 rounded-full"
+     style="width:{{ (sequence_id / max_sequence * 100) | round(1) }}%;
+            transition:width 0.7s ease-out;">
+</div>
+
+{# ── Completion zone (pick 48 only) ──────────────────────────────────────── #}
+{% if is_final %}
+<div id="completion-zone" hx-swap-oob="true">
+  <div class="mt-8 rounded-xl border border-green-700 bg-green-950/30 px-6 py-6 text-center">
+    <p class="text-3xl mb-2">🏆</p>
+    <p class="text-xl font-black text-green-300 mb-1">Draft Complete!</p>
+    <p class="text-sm text-gray-400 mb-5">
+      All {{ sequence_id }} picks revealed. Good luck to everyone in the pool!
+    </p>
+    <div class="flex justify-center gap-3 flex-wrap">
+      <a href="/dashboard"
+         class="bg-yellow-500 hover:bg-yellow-400 text-gray-900
+                font-bold px-6 py-2.5 rounded-lg text-sm transition">
+        Go To Dashboard →
+      </a>
+      <a href="/teams/assignments"
+         class="bg-gray-700 hover:bg-gray-600 text-gray-200
+                font-semibold px-5 py-2.5 rounded-lg text-sm transition">
+        📋 View Assignments
+      </a>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var exp = new Date();
+    exp.setDate(exp.getDate() + 90);
+    document.cookie = "reveal_watched=true; path=/; expires=" + exp.toUTCString() + "; SameSite=Lax";
+  })();
+  </script>
+</div>
+{% endif %}
+
+
+{% else %}
+{# ── No pick data: advance chain silently after 3 s ──────────────────────── #}
+{% if not is_final %}
+<div id="chain-trigger"
+     hx-swap-oob="true"
+     hx-get="/reveal/stream/{{ next_sequence }}"
+     hx-trigger="next-pick"
+     hx-target="#pick-grid"
+     hx-swap="beforeend">
+</div>
+<script>
+setTimeout(function () {
+  var t = document.getElementById('chain-trigger');
+  if (t) htmx.trigger(t, 'next-pick');
+}, 3200);
+</script>
+{% endif %}
+{% endif %}

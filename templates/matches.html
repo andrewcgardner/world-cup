@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Matches – WC 2026 Pool{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Tournament Schedule</h1>
+
+<!-- Tab buttons -->
+<div class="flex gap-2 mb-6 border-b border-gray-800 pb-2" id="match-tabs">
+  <button onclick="showTab('live')"
+          class="tab-btn px-4 py-2 text-sm rounded-t font-semibold bg-red-700 text-white">
+    🔴 Live ({{ live|length }})
+  </button>
+  <button onclick="showTab('upcoming')"
+          class="tab-btn px-4 py-2 text-sm rounded-t font-semibold bg-gray-700 text-gray-200 hover:bg-gray-600">
+    🗓 Upcoming ({{ upcoming|length }})
+  </button>
+  <button onclick="showTab('past')"
+          class="tab-btn px-4 py-2 text-sm rounded-t font-semibold bg-gray-700 text-gray-200 hover:bg-gray-600">
+    ✅ Past ({{ past|length }})
+  </button>
+</div>
+
+<!-- Live -->
+<section id="tab-live" class="tab-panel">
+  {% if live %}
+    <div class="grid gap-3">
+      {% for m in live %}{% include "fragments/match_card.html" %}{% endfor %}
+    </div>
+  {% else %}
+    <p class="text-gray-500 italic">No live matches right now.</p>
+  {% endif %}
+</section>
+
+<!-- Upcoming -->
+<section id="tab-upcoming" class="tab-panel hidden">
+  {% if upcoming %}
+    <div class="grid gap-3">
+      {% for m in upcoming %}{% include "fragments/match_card.html" %}{% endfor %}
+    </div>
+  {% else %}
+    <p class="text-gray-500 italic">No upcoming matches.</p>
+  {% endif %}
+</section>
+
+<!-- Past -->
+<section id="tab-past" class="tab-panel hidden">
+  {% if past %}
+    <div class="grid gap-3">
+      {% for m in past %}{% include "fragments/match_card.html" %}{% endfor %}
+    </div>
+  {% else %}
+    <p class="text-gray-500 italic">No finished matches yet.</p>
+  {% endif %}
+</section>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+}
+// Auto-open live tab on load (already visible by default above)
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{#
+  Context variables expected:
+    m  – a match row dict with:
+         status, stage, kickoff_time,
+         home_team.country_name, away_team.country_name,
+         home_team_label, away_team_label  (fallback for TBD knockout fixtures)
+         home_score, away_score
+
+  Name resolution priority:
+    1. Joined team record (home_team.country_name) — set once participants known
+    2. home_team_label / away_team_label         — e.g. "Winner Group A"
+    3. Literal "TBD"
+#}
+{% set home_name = m.home_team.country_name if m.home_team
+                   else (m.home_team_label or 'TBD') %}
+{% set away_name = m.away_team.country_name if m.away_team
+                   else (m.away_team_label or 'TBD') %}
+{% set hs = m.home_score %}
+{% set as_ = m.away_score %}
+
+<div class="rounded-lg border px-5 py-4 flex items-center justify-between gap-4
+  {% if m.status == 'LIVE' %}border-red-700 bg-red-950/40
+  {% elif m.status == 'FINISHED' %}border-gray-700 bg-gray-900
+  {% else %}border-gray-800 bg-gray-900
+  {% endif %}">
+
+  <!-- Stage badge -->
+  <span class="text-xs font-mono text-gray-500 w-14 shrink-0">{{ m.stage }}</span>
+
+  <!-- Home team -->
+  <span class="flex-1 text-right font-semibold
+    {% if m.status == 'FINISHED' and hs is not none and as_ is not none and hs > as_ %}text-yellow-300{% endif %}">
+    {{ home_name }}
+  </span>
+
+  <!-- Score / time -->
+  <div class="text-center w-24 shrink-0">
+    {% if m.status == 'LIVE' %}
+      <span class="live-badge inline-block bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded mr-1">LIVE</span>
+      <span class="font-bold text-lg">{{ hs }} – {{ as_ }}</span>
+    {% elif m.status == 'FINISHED' %}
+      <span class="font-bold text-lg">{{ hs }} – {{ as_ }}</span>
+    {% else %}
+      <span class="text-gray-400 text-sm">
+        {% if m.kickoff_time %}
+          {{ m.kickoff_time | truncate(16, True, '') }}
+        {% else %}
+          TBD
+        {% endif %}
+      </span>
+    {% endif %}
+  </div>
+
+  <!-- Away team -->
+  <span class="flex-1 font-semibold
+    {% if m.status == 'FINISHED' and hs is not none and as_ is not none and as_ > hs %}text-yellow-300{% endif %}">
+    {{ away_name }}
+  </span>
+
+</div>

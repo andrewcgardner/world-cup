@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Draft Assignments – WC 2026 Pool{% endblock %}
+
+{% block content %}
+
+{# ── Header ────────────────────────────────────────────────────────────── #}
+<div class="flex items-start justify-between mb-6 gap-4 flex-wrap">
+  <div>
+    <h1 class="text-2xl font-bold mb-1">📋 Draft Assignments</h1>
+    <p class="text-sm text-gray-400">All 12 managers · 4 snake-drafted teams each</p>
+  </div>
+
+  {# ── Replay Reveal Show button ─────────────────────────────────────────── #}
+  <button onclick="replayReveal()"
+          class="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-600
+                 text-sm font-semibold px-4 py-2 rounded-lg transition">
+    🎬 Replay Reveal Show
+  </button>
+</div>
+
+{# ── 12-Manager Grid ───────────────────────────────────────────────────── #}
+{% if users %}
+<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+  {% for user in users %}
+  <div class="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden
+              hover:border-gray-600 transition">
+
+    {# Manager name header #}
+    <div class="px-3 py-2 bg-gray-800 border-b border-gray-700">
+      <p class="font-bold text-sm text-white truncate" title="{{ user.name }}">
+        {{ user.name }}
+      </p>
+      <p class="text-xs text-gray-500">{{ user.teams | length }} teams</p>
+    </div>
+
+    {# Teams list #}
+    <div class="divide-y divide-gray-800">
+      {% for team in user.teams %}
+      <div class="px-3 py-2 flex items-center gap-2">
+        <span class="text-lg" data-flag="{{ team.country_name }}">🏳</span>
+        <div class="min-w-0">
+          <p class="text-xs font-semibold text-white truncate"
+             title="{{ team.country_name }}">
+            {{ team.country_name }}
+          </p>
+          <p class="text-xs text-gray-500">
+            Pot {{ team.pot_number }}
+            <span class="text-gray-600">· #{{ team.reveal_sequence }}</span>
+          </p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="py-16 text-center text-gray-500 italic">
+  Draft hasn't been run yet — no assignments to display.
+</div>
+{% endif %}
+
+<script>
+// Use the global window.FLAG_MAP defined in base.html
+window.resolveFlags();
+
+// Replay: clear cookie and hard-navigate to stream start
+function replayReveal() {
+  document.cookie = "reveal_watched=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
+  window.location.href = "/reveal/stream/1";
+}
+</script>
+{% endblock %}

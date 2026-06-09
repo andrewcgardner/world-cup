@@ -1,0 +1,84 @@
+{#
+  Replaces #breakdown-{user_id} via HTMX outerHTML swap.
+  Keeps the same id so a second click re-fetches/refreshes.
+  breakdown = {user_id, user_name, total_points, teams: [...]}
+#}
+{% if breakdown and breakdown.teams %}
+<div id="breakdown-{{ breakdown.user_id }}"
+     class="border-t border-yellow-900/50 bg-gray-950 px-4 py-4
+            animate-[slideDown_0.2s_ease-out]">
+
+  {# Header row with collapse button #}
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="text-sm font-bold text-yellow-400">
+      {{ breakdown.user_name }} — Point Breakdown
+    </h3>
+    <button onclick="
+      const el = document.getElementById('breakdown-{{ breakdown.user_id }}');
+      el.innerHTML = '';
+      el.className = '';
+    " class="text-xs text-gray-500 hover:text-gray-300 transition">✕ Close</button>
+  </div>
+
+  {# Per-team breakdown table #}
+  <div class="overflow-x-auto rounded-lg border border-gray-800">
+    <table class="min-w-full text-xs">
+      <thead class="bg-gray-800 text-gray-400 uppercase">
+        <tr>
+          <th class="px-3 py-2 text-left">Team</th>
+          <th class="px-3 py-2 text-center">Pot</th>
+          <th class="px-3 py-2 text-center">Grp</th>
+          <th class="px-3 py-2 text-right">Group Stage</th>
+          <th class="px-3 py-2 text-right">R32</th>
+          <th class="px-3 py-2 text-right">R16</th>
+          <th class="px-3 py-2 text-right">QF</th>
+          <th class="px-3 py-2 text-right">SF</th>
+          <th class="px-3 py-2 text-right">Final</th>
+          <th class="px-3 py-2 text-right font-bold text-yellow-400">Total</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-800">
+        {% for team in breakdown.teams %}
+        {% set pts = team.points %}
+        <tr class="bg-gray-900 hover:bg-gray-800 transition">
+          <td class="px-3 py-2 font-semibold text-white">{{ team.country_name }}</td>
+          <td class="px-3 py-2 text-center text-gray-400">{{ team.pot_number }}</td>
+          <td class="px-3 py-2 text-center text-gray-400">{{ team.group_letter or '–' }}</td>
+          <td class="px-3 py-2 text-right {% if pts.group_stage %}text-green-400{% else %}text-gray-600{% endif %}">
+            {{ pts.group_stage or '–' }}
+          </td>
+          {% for stage_key in ['r32','r16','qf','sf','final'] %}
+          {% set stage_pts = pts[stage_key] %}
+          <td class="px-3 py-2 text-right {% if stage_pts %}text-green-400{% else %}text-gray-600{% endif %}">
+            {{ stage_pts or '–' }}
+          </td>
+          {% endfor %}
+          <td class="px-3 py-2 text-right font-bold text-yellow-300">{{ pts.total }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr class="bg-gray-800 border-t border-gray-700">
+          <td colspan="9" class="px-3 py-2 text-right text-xs font-semibold text-gray-400 uppercase">
+            Manager Total
+          </td>
+          <td class="px-3 py-2 text-right font-bold text-yellow-400 text-sm">
+            {{ breakdown.total_points }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<style>
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+
+{% else %}
+{# Empty replacement – collapses the drawer if no data #}
+<div id="breakdown-{{ breakdown.user_id if breakdown else 0 }}"></div>
+{% endif %}

@@ -1,0 +1,102 @@
+{#
+  Replaces #draw-section via HTMX outerHTML after POST /admin/run-draw.
+  Shows success state or a detailed error message.
+#}
+<section id="draw-section" class="rounded-xl border overflow-hidden
+  {% if draw_error %}border-red-700 bg-red-950/20
+  {% else %}border-green-700 bg-green-950/20{% endif %}">
+
+  <div class="px-5 py-3 border-b
+    {% if draw_error %}border-red-800/50 bg-red-900/20
+    {% else %}border-green-800/50 bg-green-900/20{% endif %}">
+    <h2 class="font-semibold text-sm uppercase tracking-wider
+      {% if draw_error %}text-red-400{% else %}text-green-400{% endif %}">
+      {{ "Draw Error" if draw_error else "Draw Complete" }}
+    </h2>
+  </div>
+
+  <div class="px-5 py-5">
+
+    {% if draw_error %}
+    {# ── Error state ─────────────────────────────────────────────────── #}
+    <div class="flex items-start gap-3 mb-4">
+      <span class="text-2xl">❌</span>
+      <div>
+        <p class="font-semibold text-red-300 mb-1">The draw could not be completed.</p>
+        <p class="text-sm text-red-400 font-mono bg-red-950/50 rounded px-3 py-2 mt-2">
+          {{ draw_error }}
+        </p>
+      </div>
+    </div>
+    <div class="flex gap-3">
+      <a href="/teams"
+         class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200
+                font-semibold px-4 py-2 rounded-lg transition">
+        ✏️ Fix Teams &amp; Pots
+      </a>
+      <a href="/admin/panel"
+         class="text-sm border border-gray-600 hover:bg-gray-800 text-gray-400
+                font-semibold px-4 py-2 rounded-lg transition">
+        ↩ Back to Panel
+      </a>
+    </div>
+
+    {% else %}
+    {# ── Success state ───────────────────────────────────────────────── #}
+    <div class="flex items-start gap-4 mb-5">
+      <span class="text-3xl">🎉</span>
+      <div>
+        <p class="font-bold text-green-300 text-lg mb-1">Draft complete!</p>
+        <p class="text-sm text-gray-400">
+          <strong class="text-white">{{ picks_created }}</strong> picks assigned
+          across 4 snake rounds.
+          Draft status is now
+          <code class="text-yellow-400">REVEALING</code>.
+        </p>
+      </div>
+    </div>
+
+    {# Quick summary table: manager → round → team #}
+    {% if users %}
+    <div class="overflow-x-auto rounded-lg border border-gray-800 mb-5">
+      <table class="min-w-full text-xs">
+        <thead class="bg-gray-800 text-gray-400 uppercase">
+          <tr>
+            <th class="px-3 py-2 text-left">Manager</th>
+            <th class="px-3 py-2 text-center">Draft Position</th>
+            <th class="px-3 py-2 text-left">Type</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800">
+          {% for user in users %}
+          <tr class="bg-gray-900 hover:bg-gray-800">
+            <td class="px-3 py-2 font-medium">{{ user.name }}</td>
+            <td class="px-3 py-2 text-center text-gray-400">
+              {{ loop.index }}
+            </td>
+            <td class="px-3 py-2 text-gray-500">
+              {{ "🤖 Bot" if user.is_bot else "👤 Manager" }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="flex gap-3 flex-wrap">
+      <a href="/reveal"
+         class="text-sm bg-yellow-500 hover:bg-yellow-400 text-gray-900
+                font-bold px-6 py-2.5 rounded-lg transition">
+        ▶ Start Reveal Show
+      </a>
+      <a href="/teams/assignments"
+         class="text-sm bg-gray-700 hover:bg-gray-600 text-gray-200
+                font-semibold px-4 py-2 rounded-lg transition">
+        📋 View All Assignments
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
+</section>

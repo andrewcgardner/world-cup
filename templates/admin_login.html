@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Admin Login – WC 2026 Pool{% endblock %}
+
+{% block content %}
+<div class="min-h-[60vh] flex items-center justify-center">
+  <div class="w-full max-w-sm">
+
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-3">🔐</div>
+      <h1 class="text-2xl font-bold">Admin Login</h1>
+      <p class="text-gray-400 text-sm mt-1">Enter your admin token to continue.</p>
+    </div>
+
+    <form method="POST" action="/admin/login" class="space-y-4">
+
+      {% if error %}
+      <div class="bg-red-900/50 border border-red-700 text-red-200 text-sm
+                  rounded-lg px-4 py-3">
+        {{ error }}
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-sm font-medium text-gray-300 mb-1.5"
+               for="token">
+          Admin Token
+        </label>
+        <input type="password"
+               id="token"
+               name="token"
+               required
+               autofocus
+               placeholder="Enter your ADMIN_TOKEN…"
+               class="w-full bg-gray-800 border border-gray-700 rounded-lg
+                      px-4 py-2.5 text-sm text-gray-100 placeholder-gray-500
+                      focus:outline-none focus:ring-2 focus:ring-yellow-500
+                      focus:border-transparent transition" />
+      </div>
+
+      <button type="submit"
+              class="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900
+                     font-bold py-2.5 rounded-lg text-sm transition">
+        Sign In
+      </button>
+
+    </form>
+
+    <p class="text-center text-xs text-gray-600 mt-6">
+      Token is set via the <code class="text-gray-400">ADMIN_TOKEN</code> env var.
+    </p>
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Group Standings – WC 2026 Pool{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex items-center justify-between">
+  <h1 class="text-2xl font-bold text-yellow-400">Group Stage Standings</h1>
+  <span class="text-sm text-gray-500">Pool Pts = current pool points earned</span>
+</div>
+
+{% if groups %}
+
+  {# ── 3-column grid of group tables ──────────────────────────────────── #}
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+
+    {% for letter, teams in groups.items() %}
+    <div class="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+
+      {# Group header #}
+      <div class="flex items-center gap-3 px-4 py-3 bg-gray-800/60 border-b border-gray-700">
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full
+                     bg-yellow-500 text-gray-900 text-sm font-black shrink-0">
+          {{ letter }}
+        </span>
+        <span class="text-sm font-bold text-gray-200">Group {{ letter }}</span>
+      </div>
+
+      {# Scrollable table wrapper (keeps card width fixed on small screens) #}
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+
+          {# Column headers #}
+          <thead>
+            <tr class="text-gray-500 uppercase tracking-wide border-b border-gray-800">
+              <th class="py-2 pl-3 pr-1 text-left w-6">#</th>
+              <th class="py-2 px-1 text-left min-w-[120px]">Team</th>
+              <th class="py-2 px-1 text-center w-7" title="Played">MP</th>
+              <th class="py-2 px-1 text-center w-7" title="Won">W</th>
+              <th class="py-2 px-1 text-center w-7" title="Drawn">D</th>
+              <th class="py-2 px-1 text-center w-7" title="Lost">L</th>
+              <th class="py-2 px-1 text-center w-8" title="Goals For">GF</th>
+              <th class="py-2 px-1 text-center w-8" title="Goals Against">GA</th>
+              <th class="py-2 px-1 text-center w-8" title="Goal Difference">GD</th>
+              <th class="py-2 px-1 text-center w-8 font-semibold text-gray-300" title="Tournament Points">Pts</th>
+              <th class="py-2 px-1 text-center w-10 text-yellow-500 font-semibold" title="Pool Points">Pool</th>
+              <th class="py-2 pl-1 pr-3 text-left min-w-[72px] text-gray-400">Owner</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for team in teams %}
+            {# Highlight the top 2 (qualify direct) and next 4 best-3rds #}
+            <tr class="border-t border-gray-800/70
+              {% if team.position == 1 %}bg-yellow-900/10
+              {% elif team.position == 2 %}bg-blue-900/10
+              {% else %}{% endif %}
+              hover:bg-gray-800/40 transition">
+
+              {# Position #}
+              <td class="py-2 pl-3 pr-1 font-bold
+                {% if team.position == 1 %}text-yellow-400
+                {% elif team.position == 2 %}text-blue-400
+                {% elif team.position == 3 %}text-orange-400
+                {% else %}text-gray-500{% endif %}">
+                {{ team.position }}
+              </td>
+
+              {# Flag + name #}
+              <td class="py-2 px-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-base shrink-0" aria-hidden="true"
+                        data-flag="{{ team.country_name }}">🏳</span>
+                  <span class="font-semibold text-gray-100 truncate">{{ team.country_name }}</span>
+                </div>
+              </td>
+
+              {# Stats #}
+              <td class="py-2 px-1 text-center text-gray-300">{{ team.played }}</td>
+              <td class="py-2 px-1 text-center text-green-400">{{ team.won }}</td>
+              <td class="py-2 px-1 text-center text-gray-400">{{ team.drawn }}</td>
+              <td class="py-2 px-1 text-center text-red-400">{{ team.lost }}</td>
+              <td class="py-2 px-1 text-center text-gray-300">{{ team.goals_for }}</td>
+              <td class="py-2 px-1 text-center text-gray-300">{{ team.goals_against }}</td>
+              <td class="py-2 px-1 text-center
+                {% if team.goal_difference > 0 %}text-green-400
+                {% elif team.goal_difference < 0 %}text-red-400
+                {% else %}text-gray-400{% endif %}">
+                {% if team.goal_difference > 0 %}+{% endif %}{{ team.goal_difference }}
+              </td>
+
+              {# Tournament Pts #}
+              <td class="py-2 px-1 text-center font-bold text-gray-100">{{ team.points }}</td>
+
+              {# Pool Pts #}
+              <td class="py-2 px-1 text-center font-bold text-yellow-400">
+                {{ team.pool_pts }}
+              </td>
+
+              {# Owner #}
+              <td class="py-2 pl-1 pr-3 text-gray-400 text-xs truncate max-w-[80px]">
+                {{ team.owner_name }}
+              </td>
+
+            </tr>
+            {% endfor %}
+          </tbody>
+
+        </table>
+      </div>
+
+    </div>
+    {% endfor %}
+
+  </div>
+
+{% else %}
+  <div class="py-24 text-center text-gray-500 italic">
+    No standings data yet — group stage hasn't started or sync is pending.
+  </div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Resolve all flag placeholders once content is ready
+  window.resolveFlags(document.body);
+</script>
+{% endblock %}
