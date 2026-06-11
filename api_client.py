@@ -266,7 +266,6 @@ def _map_group(raw: dict) -> list[dict]:
             "goals_against":   ga,
             "goal_difference": _int_or_none(t.get("gd")) or (gf - ga),
             "points":          _int_or_none(t.get("pts")) or 0,
-            "form":            t.get("form"),
         })
 
     # Impute position by sorting: pts desc → gd desc → gf desc
