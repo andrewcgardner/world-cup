@@ -11,9 +11,9 @@ but no API calls are made, keeping costs and rate limits low.
 Active window covers the earliest possible kickoff (noon) through one hour
 after the latest match could finish (~2am), with a 1-hour buffer.
 
-Scheduling suggestion (cron every 10 minutes):
-  */10 * * * *  curl -X POST https://your-app/api/worker/sync \
-                     -H "Authorization: Bearer $CRON_TOKEN"
+Scheduling:
+  Automated every 10 minutes via cron-job.org during the active window.
+  Manual trigger available via GitHub Actions workflow_dispatch.
 
 At 10-min intervals the time-window check yields:
   Active hours  = 15 h  → 90 calls/day  (fixtures)
