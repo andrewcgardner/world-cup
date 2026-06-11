@@ -1,0 +1,45 @@
+name: Sync match data
+
+# Runs every 10 minutes during the active game window (12pm–3am US/Eastern).
+# EDT = UTC−4, so the window maps to 16:00–07:00 UTC.
+# Two schedule entries cover the split across midnight UTC:
+#   16:00–23:50 UTC  →  noon–7:50pm ET
+#   00:00–07:00 UTC  →  8pm ET–3am ET
+#
+# The app's own time-window gate (/api/worker/sync) provides a second layer of
+# protection and will return {"status": "skipped"} for any request that slips
+# through outside the window (e.g. during the EST→EDT transition).
+
+on:
+  schedule:
+    - cron: "*/10 16-23 * * *"   # noon–midnight ET (UTC-4)
+    - cron: "*/10 0-7 * * *"     # midnight–3am ET (UTC-4)
+  workflow_dispatch:              # allow manual trigger from the Actions UI
+
+jobs:
+  sync:
+    name: Trigger sync worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: POST /api/worker/sync
+        id: sync
+        run: |
+          RESPONSE=$(curl --silent --show-error --fail-with-body \
+            --max-time 30 \
+            -X POST "${{ secrets.APP_URL }}/api/worker/sync" \
+            -H "Authorization: Bearer ${{ secrets.CRON_TOKEN }}" \
+            -H "Content-Type: application/json")
+          echo "response=$RESPONSE" >> "$GITHUB_OUTPUT"
+          echo "$RESPONSE"
+
+      - name: Check sync status
+        run: |
+          STATUS=$(echo '${{ steps.sync.outputs.response }}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))")
+          echo "Sync status: $STATUS"
+          # 'skipped' is fine (outside window); anything else should be 'ok'
+          if [[ "$STATUS" != "ok" && "$STATUS" != "skipped" ]]; then
+            echo "Unexpected status: $STATUS" >&2
+            exit 1
+          fi

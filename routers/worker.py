@@ -1,8 +1,8 @@
 """
 /api/worker/sync  –  Cron-triggered data pipeline.
 
-Fetches live match data and group standings from API-Football, upserts both
-into Supabase, then triggers the scoring engine.
+Fetches live match data and group standings from worldcup26.ir, upserts both
+into Supabase, then runs score recomputation synchronously.
 
 Time-window gate
 ────────────────
@@ -34,7 +34,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import JSONResponse
 from typing import Optional
 
@@ -144,15 +144,15 @@ async def _sync_standings(db, ext_to_int: dict[int, int]) -> int:
 # ── Main endpoint ──────────────────────────────────────────────────────────
 
 @router.post("/sync")
-async def sync(
-    background_tasks: BackgroundTasks,
-    _: None = Depends(_verify_cron_token),
-):
+async def sync(_: None = Depends(_verify_cron_token)):
     """
     Main sync endpoint — call this from your cron job every 10 minutes.
 
-    Returns immediately with a summary; scoring runs in the background
-    so the HTTP response is never blocked by the recompute.
+    Fetches fixtures and standings, upserts to Supabase, then runs score
+    recomputation synchronously before returning. This ensures scoring is
+    always complete by the time the response goes out — important on
+    serverless hosts (e.g. Vercel) where background tasks may be killed
+    after the response is sent.
     """
     now_et = datetime.now(_ET)
 
@@ -169,12 +169,11 @@ async def sync(
     fixtures_count  = await _sync_fixtures(db, ext_to_int)
     standings_count = await _sync_standings(db, ext_to_int)
 
-    # Recompute pool scores in the background (non-blocking)
-    background_tasks.add_task(recompute_all_scores)
+    recompute_all_scores()
 
     return JSONResponse({
-        "status":           "ok",
-        "time_et":          now_et.strftime("%H:%M %Z"),
+        "status":            "ok",
+        "time_et":           now_et.strftime("%H:%M %Z"),
         "fixtures_upserted": fixtures_count,
         "standings_upserted": standings_count,
     })
@@ -183,9 +182,6 @@ async def sync(
 # ── Legacy alias (backwards compat with any existing cron configs) ─────────
 
 @router.post("/sync-matches")
-async def sync_matches_legacy(
-    background_tasks: BackgroundTasks,
-    _: None = Depends(_verify_cron_token),
-):
+async def sync_matches_legacy(_: None = Depends(_verify_cron_token)):
     """Deprecated alias → delegates to /sync."""
-    return await sync(background_tasks, _)
+    return await sync(_)
