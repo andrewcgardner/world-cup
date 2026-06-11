@@ -1,20 +1,10 @@
 name: Sync match data
 
-# Runs every 10 minutes during the active game window (12pm–3am US/Eastern).
-# EDT = UTC−4, so the window maps to 16:00–07:00 UTC.
-# Two schedule entries cover the split across midnight UTC:
-#   16:00–23:50 UTC  →  noon–7:50pm ET
-#   00:00–07:00 UTC  →  8pm ET–3am ET
-#
-# The app's own time-window gate (/api/worker/sync) provides a second layer of
-# protection and will return {"status": "skipped"} for any request that slips
-# through outside the window (e.g. during the EST→EDT transition).
+# Manual trigger only. Automated scheduling is handled by cron-job.org,
+# which POSTs to /api/worker/sync every 10 minutes during the game window.
 
 on:
-  schedule:
-    - cron: "*/10 16-23 * * *"   # noon–midnight ET (UTC-4)
-    - cron: "*/10 0-7 * * *"     # midnight–3am ET (UTC-4)
-  workflow_dispatch:              # allow manual trigger from the Actions UI
+  workflow_dispatch:
 
 jobs:
   sync:
