@@ -26,8 +26,9 @@ _GATE_TEMPLATE = Path("templates/password_gate.html").read_text()
 
 # Routes that bypass the password gate entirely.
 _PUBLIC_PREFIXES = (
-    "/auth",    # login route itself
-    "/static",  # CSS, JS, images
+    "/auth",        # login route itself
+    "/static",      # CSS, JS, images
+    "/api/worker",  # cron worker — secured by CRON_TOKEN, not the cookie gate
 )
 
 
