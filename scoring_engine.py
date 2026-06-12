@@ -36,20 +36,20 @@ def _get_picks(db) -> dict[int, int]:
 
 
 def _get_finished_matches(db, stage: MatchStage | None = None):
-    q = db.table("matches").select("*").eq("status", MatchStatus.FINISHED)
+    q = db.table("matches").select("*").eq("status", MatchStatus.FINISHED.value)
     if stage:
-        q = q.eq("stage", stage)
+        q = q.eq("stage", stage.value)
     return q.execute().data or []
 
 
 def _get_active_matches(db, stage: MatchStage | None = None):
     """Returns LIVE and FINISHED matches — i.e. every match that has kicked off.
-    Uses neq(SCHEDULED) instead of in_([LIVE, FINISHED]) to avoid supabase-py
-    serialising str-enum values incorrectly inside a list.
+    Uses neq(SCHEDULED) to avoid supabase-py serialising a list of str-enums
+    incorrectly. Uses .value on all enums to avoid str(enum) → "MatchStatus.X".
     """
-    q = db.table("matches").select("*").neq("status", MatchStatus.SCHEDULED)
+    q = db.table("matches").select("*").neq("status", MatchStatus.SCHEDULED.value)
     if stage:
-        q = q.eq("stage", stage)
+        q = q.eq("stage", stage.value)
     return q.execute().data or []
 
 
