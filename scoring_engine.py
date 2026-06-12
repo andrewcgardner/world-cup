@@ -43,10 +43,11 @@ def _get_finished_matches(db, stage: MatchStage | None = None):
 
 
 def _get_active_matches(db, stage: MatchStage | None = None):
-    """Returns LIVE and FINISHED matches — i.e. every match that has kicked off."""
-    q = db.table("matches").select("*").in_(
-        "status", [MatchStatus.LIVE, MatchStatus.FINISHED]
-    )
+    """Returns LIVE and FINISHED matches — i.e. every match that has kicked off.
+    Uses neq(SCHEDULED) instead of in_([LIVE, FINISHED]) to avoid supabase-py
+    serialising str-enum values incorrectly inside a list.
+    """
+    q = db.table("matches").select("*").neq("status", MatchStatus.SCHEDULED)
     if stage:
         q = q.eq("stage", stage)
     return q.execute().data or []
