@@ -39,7 +39,7 @@ from fastapi.responses import JSONResponse
 from typing import Optional
 
 from config import get_settings
-from api_client import fetch_fixtures, fetch_standings
+from api_client import fetch_fixtures
 from scoring_engine import recompute_all_scores
 from database import admin_client
 
@@ -166,8 +166,7 @@ async def sync(_: None = Depends(_verify_cron_token)):
     db = admin_client()
     ext_to_int = _build_ext_to_int_map(db)
 
-    fixtures_count  = await _sync_fixtures(db, ext_to_int)
-    standings_count = await _sync_standings(db, ext_to_int)
+    fixtures_count = await _sync_fixtures(db, ext_to_int)
 
     recompute_all_scores()
 
@@ -175,7 +174,6 @@ async def sync(_: None = Depends(_verify_cron_token)):
         "status":            "ok",
         "time_et":           now_et.strftime("%H:%M %Z"),
         "fixtures_upserted": fixtures_count,
-        "standings_upserted": standings_count,
     })
 
 

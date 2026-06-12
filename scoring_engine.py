@@ -42,6 +42,16 @@ def _get_finished_matches(db, stage: MatchStage | None = None):
     return q.execute().data or []
 
 
+def _get_active_matches(db, stage: MatchStage | None = None):
+    """Returns LIVE and FINISHED matches — i.e. every match that has kicked off."""
+    q = db.table("matches").select("*").in_(
+        "status", [MatchStatus.LIVE, MatchStatus.FINISHED]
+    )
+    if stage:
+        q = q.eq("stage", stage)
+    return q.execute().data or []
+
+
 def _get_or_init_score(scores: dict[int, int], user_id: int) -> int:
     return scores.get(user_id, 0)
 
@@ -75,8 +85,10 @@ def _standings_from_db(db) -> dict[str, list[dict]]:
 
 def _compute_group_standings_from_matches(db) -> dict[str, list[dict]]:
     """
-    Fallback: derive standings by replaying every finished GROUP match.
-    Used when the group_standings table is empty (pre-tournament or API down).
+    Derive standings by replaying every active (LIVE + FINISHED) GROUP match.
+    LIVE matches contribute their current score, so standings update in real time.
+    Only teams that have kicked off at least one match appear in the result;
+    the played > 0 gate in _apply_tie_aware_group_points handles the rest.
     """
     stats: dict[int, dict] = {}
 
@@ -95,7 +107,7 @@ def _compute_group_standings_from_matches(db) -> dict[str, list[dict]]:
             "GF": 0, "GA": 0, "GD": 0, "Pts": 0,
         }
 
-    for m in _get_finished_matches(db, MatchStage.GROUP):
+    for m in _get_active_matches(db, MatchStage.GROUP):
         if m["home_score"] is None or m["away_score"] is None:
             continue
         h_id, a_id = m["home_team_id"], m["away_team_id"]
@@ -310,9 +322,8 @@ def _award_group_points(db, picks: dict[int, int], settings: dict) -> dict[int, 
     """
     Entry point for group-stage scoring.
 
-    Priority:
-      1. Use group_standings table (live API data, includes mid-game updates).
-      2. Fall back to recomputing from raw finished match rows if table is empty.
+    Always derives standings from active (LIVE + FINISHED) match data so that
+    pool points update in real time as matches are played, including mid-game.
     """
     place_pts = [
         settings["pt_group_1st"],
@@ -321,14 +332,10 @@ def _award_group_points(db, picks: dict[int, int], settings: dict) -> dict[int, 
         settings["pt_group_4th"],
     ]
 
-    standings = _standings_from_db(db)
+    standings = _compute_group_standings_from_matches(db)
 
-    if not standings:
-        logger.info("group_standings table empty — falling back to match computation")
-        standings = _compute_group_standings_from_matches(db)
-
-    # Fetch finished group matches so H2H can break ties within each group
-    group_matches = _get_finished_matches(db, MatchStage.GROUP)
+    # Active group matches for H2H tiebreaker
+    group_matches = _get_active_matches(db, MatchStage.GROUP)
 
     return _apply_tie_aware_group_points(standings, picks, place_pts, group_matches)
 
@@ -780,28 +787,62 @@ def get_teams_matrix() -> dict:
             uname = p.get("user", {}).get("name", "Unassigned") if p.get("user") else "Unassigned"
             owner_map[p["team_id"]] = uname
 
-        # Current group standings — read directly from group_standings table
-        # (consistent with the rest of the scoring engine; avoids anon-client
-        # match replays that can silently return no rows under some RLS configs)
-        standings_res = db.table("group_standings").select(
-            "team_id, position, points, goal_difference, goals_for, "
-            "goals_against, played, won, drawn, lost"
-        ).execute()
+        # Derive standings from active (LIVE + FINISHED) group matches
+        active_group_matches = _get_active_matches(db, MatchStage.GROUP)
+        match_stats: dict[int, dict] = {}
+        for m in active_group_matches:
+            if m["home_score"] is None or m["away_score"] is None:
+                continue
+            h_id, a_id = m["home_team_id"], m["away_team_id"]
+            if not h_id or not a_id:
+                continue
+            hs, as_ = m["home_score"], m["away_score"]
+            for t_id, gf, ga in [(h_id, hs, as_), (a_id, as_, hs)]:
+                s = match_stats.setdefault(t_id, {
+                    "MP": 0, "W": 0, "D": 0, "L": 0,
+                    "GF": 0, "GA": 0, "GD": 0, "Pts": 0,
+                })
+                s["MP"] += 1
+                s["GF"] += gf; s["GA"] += ga; s["GD"] = s["GF"] - s["GA"]
+                if gf > ga:    s["W"] += 1; s["Pts"] += 3
+                elif gf == ga: s["D"] += 1; s["Pts"] += 1
+                else:          s["L"] += 1
 
-        standing_map: dict[int, dict] = {}
-        for row in (standings_res.data or []):
-            if row.get("played", 0) > 0:
-                standing_map[row["team_id"]] = {
-                    "rank": row.get("position", 0),
-                    "MP": row.get("played", 0),
-                    "W":  row.get("won", 0),
-                    "D":  row.get("drawn", 0),
-                    "L":  row.get("lost", 0),
-                    "GF": row.get("goals_for", 0),
-                    "GA": row.get("goals_against", 0),
-                    "GD": row.get("goal_difference", 0),
-                    "Pts": row.get("points", 0),
-                }
+        # Compute positions per group
+        group_buckets: dict[str, list[int]] = defaultdict(list)
+        for t in teams:
+            letter = t.get("group_letter")
+            if letter and t["id"] in match_stats:
+                group_buckets[letter].append(t["id"])
+
+        position_map: dict[int, int] = {}
+        for letter, tids in group_buckets.items():
+            sorted_tids = sorted(
+                tids,
+                key=lambda tid: (
+                    match_stats[tid]["Pts"],
+                    match_stats[tid]["GD"],
+                    match_stats[tid]["GF"],
+                ),
+                reverse=True,
+            )
+            for i, tid in enumerate(sorted_tids):
+                position_map[tid] = i + 1
+
+        standing_map: dict[int, dict] = {
+            tid: {
+                "rank": position_map.get(tid, 0),
+                "MP": s["MP"],
+                "W":  s["W"],
+                "D":  s["D"],
+                "L":  s["L"],
+                "GF": s["GF"],
+                "GA": s["GA"],
+                "GD": s["GD"],
+                "Pts": s["Pts"],
+            }
+            for tid, s in match_stats.items()
+        }
 
         # Group teams by group_letter
         groups: dict[str, list[dict]] = defaultdict(list)
@@ -830,6 +871,8 @@ def get_teams_matrix() -> dict:
 def get_group_standings_page_data() -> dict:
     """
     Returns all 12 groups with per-team stats, pool points, and owner names.
+    Derived entirely from active (LIVE + FINISHED) matches so standings and
+    pool points update in real time, including mid-game.
 
     {
       "A": [
@@ -852,57 +895,10 @@ def get_group_standings_page_data() -> dict:
         db = anon_client()
         settings = _get_settings_row(db)
 
-        # ── Full group standings rows ───────────────────────────────────────
-        res = db.table("group_standings").select(
-            "group_letter, team_id, position, points, goal_difference, "
-            "goals_for, goals_against, played, won, drawn, lost"
-        ).order("group_letter").order("position").execute()
-        standings_rows = res.data or []
-
-        # Build {group_letter: [row, ...]} sorted by position
-        raw_groups: dict[str, list[dict]] = defaultdict(list)
-        for row in standings_rows:
-            raw_groups[row["group_letter"]].append(row)
-
-        # ── Per-team pool points (canonical tie-aware logic with H2H) ─────
-        place_pts = [
-            settings["pt_group_1st"], settings["pt_group_2nd"],
-            settings["pt_group_3rd"], settings["pt_group_4th"],
-        ]
-
-        # Convert raw_groups to the format expected by _apply_tie_aware_group_points
-        standings_for_scoring: dict[str, list[dict]] = {
-            letter: [
-                {
-                    "team_id": t["team_id"],
-                    "Pts":     t.get("points", 0),
-                    "GD":      t.get("goal_difference", 0),
-                    "GF":      t.get("goals_for", 0),
-                    "played":  t.get("played", 0),
-                }
-                for t in teams
-            ]
-            for letter, teams in raw_groups.items()
-        }
-
-        group_matches_for_h2h = _get_finished_matches(db, MatchStage.GROUP)
-
-        all_team_ids_standings = {r["team_id"] for r in standings_rows}
-        team_id_as_user = {tid: tid for tid in all_team_ids_standings}
-        group_pts_per_team = _apply_tie_aware_group_points(
-            standings_for_scoring, team_id_as_user, place_pts, group_matches_for_h2h
-        )
-        team_pool_pts: dict[int, int] = {
-            tid: group_pts_per_team.get(tid, 0) for tid in all_team_ids_standings
-        }
-
-        # ── Team name lookup ───────────────────────────────────────────────
-        all_team_ids = [r["team_id"] for r in standings_rows]
-        team_info: dict[int, dict] = {}
-        if all_team_ids:
-            tr = db.table("teams").select("id, country_name").in_("id", all_team_ids).execute()
-            # tr = db.table("teams").select("external_id, country_name").in_("external_id", all_team_ids).execute()
-            team_info = {t["id"]: t for t in (tr.data or [])}
+        # ── All teams (need every team, even those yet to play) ────────────
+        teams_res = db.table("teams").select("id, country_name, group_letter").execute()
+        all_teams = teams_res.data or []
+        team_names: dict[int, str] = {t["id"]: t["country_name"] for t in all_teams}
 
         # ── Owner lookup ───────────────────────────────────────────────────
         picks_res = db.table("picks").select("team_id, user:users(name)").execute()
@@ -911,26 +907,92 @@ def get_group_standings_page_data() -> dict:
             uname = (p.get("user") or {}).get("name") or "Unassigned"
             owner_map[p["team_id"]] = uname
 
+        # ── Compute stats from active (LIVE + FINISHED) group matches ──────
+        active_matches = _get_active_matches(db, MatchStage.GROUP)
+        stats: dict[int, dict] = {}
+        for m in active_matches:
+            if m["home_score"] is None or m["away_score"] is None:
+                continue
+            h_id, a_id = m["home_team_id"], m["away_team_id"]
+            if not h_id or not a_id:
+                continue
+            hs, as_ = m["home_score"], m["away_score"]
+            for t_id, gf, ga in [(h_id, hs, as_), (a_id, as_, hs)]:
+                s = stats.setdefault(t_id, {
+                    "MP": 0, "W": 0, "D": 0, "L": 0,
+                    "GF": 0, "GA": 0, "GD": 0, "Pts": 0,
+                })
+                s["MP"] += 1
+                s["GF"] += gf; s["GA"] += ga; s["GD"] = s["GF"] - s["GA"]
+                if gf > ga:    s["W"] += 1; s["Pts"] += 3
+                elif gf == ga: s["D"] += 1; s["Pts"] += 1
+                else:          s["L"] += 1
+
+        # ── Build groups: include ALL teams, zeroes for unplayed ───────────
+        raw_groups: dict[str, list[dict]] = defaultdict(list)
+        for t in all_teams:
+            letter = t.get("group_letter")
+            if not letter:
+                continue
+            s = stats.get(t["id"], {})
+            raw_groups[letter].append({
+                "team_id": t["id"],
+                "Pts": s.get("Pts", 0),
+                "GD":  s.get("GD",  0),
+                "GF":  s.get("GF",  0),
+                "MP":  s.get("MP",  0),
+                "W":   s.get("W",   0),
+                "D":   s.get("D",   0),
+                "L":   s.get("L",   0),
+                "GA":  s.get("GA",  0),
+            })
+
+        # Sort each group and assign positions
+        for letter in raw_groups:
+            raw_groups[letter].sort(
+                key=lambda x: (x["Pts"], x["GD"], x["GF"]), reverse=True
+            )
+            for i, t in enumerate(raw_groups[letter]):
+                t["position"] = i + 1
+
+        # ── Per-team pool points (tie-aware with H2H) ──────────────────────
+        place_pts = [
+            settings["pt_group_1st"], settings["pt_group_2nd"],
+            settings["pt_group_3rd"], settings["pt_group_4th"],
+        ]
+        standings_for_scoring: dict[str, list[dict]] = {
+            letter: [
+                {"team_id": t["team_id"], "Pts": t["Pts"], "GD": t["GD"],
+                 "GF": t["GF"], "played": t["MP"]}
+                for t in teams
+            ]
+            for letter, teams in raw_groups.items()
+        }
+        all_team_ids = {t["team_id"] for teams in raw_groups.values() for t in teams}
+        team_id_as_user = {tid: tid for tid in all_team_ids}
+        group_pts_per_team = _apply_tie_aware_group_points(
+            standings_for_scoring, team_id_as_user, place_pts, active_matches
+        )
+
         # ── Assemble output ────────────────────────────────────────────────
         groups: dict[str, list[dict]] = {}
         for letter in sorted(raw_groups.keys()):
             group_teams = []
             for row in raw_groups[letter]:
                 tid = row["team_id"]
-                info = team_info.get(tid, {})
                 group_teams.append({
-                    "position":        row.get("position", 0),
+                    "position":        row["position"],
                     "team_id":         tid,
-                    "country_name":    info.get("country_name", f"Team {tid}"),
-                    "played":          row.get("played", 0),
-                    "won":             row.get("won", 0),
-                    "drawn":           row.get("drawn", 0),
-                    "lost":            row.get("lost", 0),
-                    "goals_for":       row.get("goals_for", 0),
-                    "goals_against":   row.get("goals_against", 0),
-                    "goal_difference": row.get("goal_difference", 0),
-                    "points":          row.get("points", 0),
-                    "pool_pts":        team_pool_pts.get(tid, 0),
+                    "country_name":    team_names.get(tid, f"Team {tid}"),
+                    "played":          row["MP"],
+                    "won":             row["W"],
+                    "drawn":           row["D"],
+                    "lost":            row["L"],
+                    "goals_for":       row["GF"],
+                    "goals_against":   row["GA"],
+                    "goal_difference": row["GD"],
+                    "points":          row["Pts"],
+                    "pool_pts":        group_pts_per_team.get(tid, 0),
                     "owner_name":      owner_map.get(tid, "Unassigned"),
                 })
             groups[letter] = group_teams
