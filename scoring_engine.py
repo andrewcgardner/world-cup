@@ -677,11 +677,11 @@ def get_user_breakdown(user_id: int) -> dict:
             settings["pt_group_3rd"], settings["pt_group_4th"],
         ]
 
-        standings = _standings_from_db(db)
-        if not standings:
-            standings = _compute_group_standings_from_matches(db)
+        # matches table requires service-role; use admin_client for this read
+        adb = admin_client()
+        standings = _compute_group_standings_from_matches(adb)
 
-        group_matches = _get_finished_matches(db, MatchStage.GROUP)
+        group_matches = _get_active_matches(adb, MatchStage.GROUP)
 
         # Temporarily map team_id → team_id as the "picks" dict so
         # _apply_tie_aware_group_points returns {team_id: pool_pts}
@@ -775,6 +775,7 @@ def get_teams_matrix() -> dict:
     """
     try:
         db = anon_client()
+        adb = admin_client()   # matches table requires service-role to bypass RLS
 
         # All teams
         teams_res = db.table("teams").select("*").order("group_letter").order("country_name").execute()
@@ -788,7 +789,7 @@ def get_teams_matrix() -> dict:
             owner_map[p["team_id"]] = uname
 
         # Derive standings from active (LIVE + FINISHED) group matches
-        active_group_matches = _get_active_matches(db, MatchStage.GROUP)
+        active_group_matches = _get_active_matches(adb, MatchStage.GROUP)
         match_stats: dict[int, dict] = {}
         for m in active_group_matches:
             if m["home_score"] is None or m["away_score"] is None:
@@ -893,6 +894,7 @@ def get_group_standings_page_data() -> dict:
     """
     try:
         db = anon_client()
+        adb = admin_client()   # matches table requires service-role to bypass RLS
         settings = _get_settings_row(db)
 
         # ── All teams (need every team, even those yet to play) ────────────
@@ -908,7 +910,7 @@ def get_group_standings_page_data() -> dict:
             owner_map[p["team_id"]] = uname
 
         # ── Compute stats from active (LIVE + FINISHED) group matches ──────
-        active_matches = _get_active_matches(db, MatchStage.GROUP)
+        active_matches = _get_active_matches(adb, MatchStage.GROUP)
         stats: dict[int, dict] = {}
         for m in active_matches:
             if m["home_score"] is None or m["away_score"] is None:
