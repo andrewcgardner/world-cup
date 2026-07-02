@@ -343,6 +343,34 @@ def _award_group_points(db, picks: dict[int, int], settings: dict) -> dict[int, 
 
 # ── Knockout Stage ─────────────────────────────────────────────────────────
 
+def _knockout_winner_id(m: dict) -> int | None:
+    """Return the winning team_id for a finished knockout match, or None.
+
+    Penalty shootout scores take precedence when both teams are level after
+    90 + extra time — i.e. when home_penalty_score / away_penalty_score are
+    present on the match row.
+    """
+    hs  = m.get("home_score")
+    as_ = m.get("away_score")
+    if hs is None or as_ is None:
+        return None
+
+    hps = m.get("home_penalty_score")
+    aps = m.get("away_penalty_score")
+    if hps is not None and aps is not None:
+        if hps > aps:
+            return m.get("home_team_id")
+        if aps > hps:
+            return m.get("away_team_id")
+        return None  # shouldn't happen
+
+    if hs > as_:
+        return m.get("home_team_id")
+    if as_ > hs:
+        return m.get("away_team_id")
+    return None  # still level with no penalties recorded
+
+
 _KNOCKOUT_PTS_KEY: dict[MatchStage, str] = {
     MatchStage.R32:   "pt_r32_win",
     MatchStage.R16:   "pt_r16_win",
@@ -359,16 +387,9 @@ def _award_knockout_points(db, picks: dict[int, int], settings: dict) -> dict[in
         pts = settings[pts_key]
         matches = _get_finished_matches(db, stage)
         for m in matches:
-            hs, as_ = m.get("home_score"), m.get("away_score")
-            if hs is None or as_ is None:
+            winner_id = _knockout_winner_id(m)
+            if winner_id is None:
                 continue
-            if hs > as_:
-                winner_id = m["home_team_id"]
-            elif as_ > hs:
-                winner_id = m["away_team_id"]
-            else:
-                continue  # Draw shouldn't happen in knockout; skip
-
             user_id = picks.get(winner_id)
             if user_id is not None:
                 scores[user_id] += pts
@@ -488,7 +509,7 @@ def get_points_timeline() -> dict:
         matches_res = (
             db.table("matches")
             .select("*")
-            .eq("status", MatchStatus.FINISHED)
+            .eq("status", MatchStatus.FINISHED.value)
             .order("kickoff_time")
             .execute()
         )
@@ -528,22 +549,34 @@ def get_points_timeline() -> dict:
             settings["pt_group_3rd"], settings["pt_group_4th"],
         ]
 
-        # Build cumulative group matches per date, compute standing snapshot
+        # Build cumulative group matches per date, compute standing snapshot.
+        # We track the previous snapshot's absolute group pts so we can emit
+        # only the *change* each day — otherwise the cumulative loop below
+        # would double-count day-1 points on day 2, triple-count on day 3, etc.
         accumulated_group: list[dict] = []
         seen_dates: list[str] = []
+        prev_group_pts: dict[int, int] = {}
         for date_str, day_matches in groupby(group_matches, key=_date_key):
             accumulated_group.extend(list(day_matches))
             standings = _compute_group_standings(accumulated_group)
 
-            delta: dict[int, int] = defaultdict(int)
+            new_group_pts: dict[int, int] = defaultdict(int)
             for letter, teams in standings.items():
                 for rank, ts in enumerate(teams[:4]):
                     uid = picks.get(ts["team_id"])
                     if uid is not None:
-                        delta[uid] += place_pts[rank]
+                        new_group_pts[uid] += place_pts[rank]
 
+            # Delta = points gained (or lost) since previous snapshot
+            delta: dict[int, int] = {}
+            for uid in set(new_group_pts) | set(prev_group_pts):
+                change = new_group_pts.get(uid, 0) - prev_group_pts.get(uid, 0)
+                if change:
+                    delta[uid] = change
+
+            prev_group_pts = dict(new_group_pts)
             seen_dates.append(date_str)
-            events.append((f"Group {date_str}", dict(delta)))
+            events.append((f"Group {date_str}", delta))
 
         # Knockout matches → one bucket per stage
         stage_order = [MatchStage.R32, MatchStage.R16, MatchStage.QF,
@@ -562,14 +595,8 @@ def get_points_timeline() -> dict:
             delta: dict[int, int] = defaultdict(int)
             pts = settings[pts_keys[stage]]
             for m in stage_matches:
-                hs, as_ = m.get("home_score"), m.get("away_score")
-                if hs is None or as_ is None:
-                    continue
-                if hs > as_:
-                    winner_id = m["home_team_id"]
-                elif as_ > hs:
-                    winner_id = m["away_team_id"]
-                else:
+                winner_id = _knockout_winner_id(m)
+                if winner_id is None:
                     continue
                 uid = picks.get(winner_id)
                 if uid is not None:
@@ -710,14 +737,8 @@ def get_user_breakdown(user_id: int) -> dict:
         for stage, key in stage_key_map.items():
             pts = settings[_KNOCKOUT_PTS_KEY[stage]]
             for m in _get_finished_matches(db, stage):
-                hs, as_ = m.get("home_score"), m.get("away_score")
-                if hs is None or as_ is None:
-                    continue
-                if hs > as_:
-                    winner_id = m["home_team_id"]
-                elif as_ > hs:
-                    winner_id = m["away_team_id"]
-                else:
+                winner_id = _knockout_winner_id(m)
+                if winner_id is None:
                     continue
                 if winner_id in team_ids:
                     ko_pts_by_team[winner_id][key] += pts
@@ -1032,11 +1053,13 @@ def get_bracket_data() -> dict:
 
             home_elim = False
             away_elim = False
-            if m.get("status") == "FINISHED" and hs is not None and as_ is not None:
-                if hs > as_:
-                    away_elim = True
-                elif as_ > hs:
-                    home_elim = True
+            if m.get("status") == "FINISHED":
+                winner_id = _knockout_winner_id(m)
+                if winner_id is not None:
+                    if winner_id == h_id:
+                        away_elim = True
+                    else:
+                        home_elim = True
 
             rounds[stage].append({
                 **m,
