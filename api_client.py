@@ -175,6 +175,19 @@ def _map_fixture(raw: dict) -> dict | None:
     status = _derive_status(raw)
     home_score = _int_or_none(raw.get("home_score")) if status != "SCHEDULED" else None
     away_score = _int_or_none(raw.get("away_score")) if status != "SCHEDULED" else None
+    # Penalty shootout scores — only present when the match went to penalties
+    home_penalty_score = _int_or_none(raw.get("home_penalty_score"))
+    away_penalty_score = _int_or_none(raw.get("away_penalty_score"))
+    if home_penalty_score is not None or away_penalty_score is not None:
+        logger.info(
+            "api_client: penalty scores found — game id=%s home=%s away=%s",
+            raw.get("id"), home_penalty_score, away_penalty_score,
+        )
+    elif raw.get("home_penalty_score") is not None or raw.get("away_penalty_score") is not None:
+        logger.warning(
+            "api_client: penalty fields present but unparseable — game id=%s raw_home=%r raw_away=%r",
+            raw.get("id"), raw.get("home_penalty_score"), raw.get("away_penalty_score"),
+        )
 
     # group_letter only meaningful for group-stage rows
     group_val = raw.get("group")
@@ -190,9 +203,11 @@ def _map_fixture(raw: dict) -> dict | None:
         "away_team_id":    away_id,
         "home_team_label": home_label,
         "away_team_label": away_label,
-        "home_score":      home_score,
-        "away_score":      away_score,
-        "kickoff_time":    _kickoff(raw.get("local_date")),
+        "home_score":          home_score,
+        "away_score":          away_score,
+        "home_penalty_score":  home_penalty_score,
+        "away_penalty_score":  away_penalty_score,
+        "kickoff_time":        _kickoff(raw.get("local_date")),
         "matchday":        _int_or_none(raw.get("matchday")),
         "group_letter":    group_letter,
         "stage":           stage,
